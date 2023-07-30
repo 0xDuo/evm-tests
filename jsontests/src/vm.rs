@@ -1,11 +1,13 @@
-use crate::utils::*;
+use crate::{utils::*, Event, EventListener, exit_reason_to_u8};
 use evm::backend::{ApplyBackend, MemoryAccount, MemoryBackend, MemoryVicinity};
 use evm::executor::stack::{MemoryStackState, StackExecutor, StackSubstateMetadata};
 use evm::Config;
+use evm_runtime::tracing::using;
 use primitive_types::{H160, H256, U256};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::fs::write;
 
 #[derive(Deserialize, Debug)]
 pub struct Test(ethjson::vm::Vm);
@@ -73,16 +75,49 @@ impl Test {
 	}
 }
 
+pub fn generate_move_test_file(test: &Test) {
+	let mut content = String::from("");
+	content.push_str("#[test_only]\n");
+	content.push_str("module devm::steps {\n");
+	content.push_str("  #[test(owner = @devm)]\n");
+  content.push_str("  fun test(owner: signer) {\n");
+  content.push_str("    aptos_framework::account::create_account_for_test(std::signer::address_of(&owner));\n");
+  content.push_str("    devm::evm::initialize(&owner);\n");
+	content.push_str("    let changes = &mut devm::state::new_changes();\n");
+	content.push_str(&format!("    devm::state::set_basic(changes, @{:?}, {}, {});\n", test.0.transaction.sender.0, 0, 1_000_000_000));
+	for (address, account) in test.unwrap_to_pre_state().into_iter() {
+		content.push_str(&format!("    devm::state::set_basic(changes, @{:?}, {}, {});\n", address, account.nonce, account.balance));
+		if account.code.len() > 0 {
+			content.push_str(&format!("    devm::state::set_code(changes, @{:?}, x\"{}\");\n", address, hex::encode(account.code)));
+		}
+		if account.storage.len() > 0 {
+			for (index, value) in account.storage.iter() {
+				content.push_str(&format!("    devm::state::set_storage(changes, @{:?}, {:?}, {:?});\n", address, index, value));
+			}
+		}
+	}
+	content.push_str(&format!("    devm::state::apply(changes);\n\n"));
+	let context = test.unwrap_to_context();
+	content.push_str(&format!("    let params = devm::evm::new_run_params(@{:?}, @{:?}, devm::state::get_code(changes, @{:?}), {}, x\"{}\", {:#x}, {:#x});\n", context.caller, context.address, context.address, context.apparent_value, hex::encode(test.unwrap_to_data().to_vec()), test.0.transaction.gas.0.as_u64(), test.0.transaction.gas_price.0.as_u64()));
+	content.push_str("    let (output, exit_reason, logs, gas) = devm::evm::run(params, &mut devm::state::new_changes(), true);\n");
+	content.push_str("    devm::evm::print_output(output, exit_reason, logs, gas);\n");
+	content.push_str("  }\n");
+	content.push_str("}\n");
+
+	let file_path = "/Users/bulent/Desktop/Blockchain/EVM/devm/tests/steps.move";
+	write(file_path, content).expect("Unable to write the steps test file");
+}
+
 pub fn test(name: &str, test: Test) {
 	print!("Running test {} ... ", name);
 	flush();
 
 	let original_state = test.unwrap_to_pre_state();
 	let vicinity = test.unwrap_to_vicinity();
-	let config = Config::frontier();
+	let config = Config::shanghai();
 	let mut backend = MemoryBackend::new(&vicinity, original_state);
 	let metadata = StackSubstateMetadata::new(test.unwrap_to_gas_limit(), &config);
-	let state = MemoryStackState::new(metadata, &mut backend);
+	let state = MemoryStackState::new(metadata, &backend);
 	let precompile = BTreeMap::new();
 	let mut executor = StackExecutor::new_with_precompiles(state, &config, &precompile);
 
@@ -92,28 +127,37 @@ pub fn test(name: &str, test: Test) {
 	let mut runtime =
 		evm::Runtime::new(code, data, context, config.stack_limit, config.memory_limit);
 
-	let reason = executor.execute(&mut runtime);
+	generate_move_test_file(&test);
+	let steps = crate::run_move_test();
+
+  let mut el = EventListener { events: vec![]};
+  let (reason, output) = using(&mut el, || {
+		// let mut el2 = EventListener { events: vec![] };
+		// evm::gasometer::tracing::using(&mut el2, || {
+			executor.execute(&mut runtime)
+		// })
+  });
+
 	let gas = executor.gas();
 	let (values, logs) = executor.into_state().deconstruct();
 	backend.apply(values, logs, false);
 
-	if test.0.output.is_none() {
-		print!("{:?} ", reason);
+	el.events.push(crate::Event::Exit { output, exit_reason: exit_reason_to_u8(&reason), logs: backend.logs().to_owned(), gas });
 
-		assert!(!reason.is_succeed());
-		assert!(test.0.post_state.is_none() && test.0.gas_left.is_none());
+	let mut steps = steps.unwrap_or_else(|_| { println!("There's a problem with dEVM"); vec![] });
+	Event::copy_static_cafe_values(&mut steps, &el.events);
 
-		println!("succeed");
+	if steps == el.events {
+		println!("Same steps");
 	} else {
-		let expected_post_gas = test.unwrap_to_post_gas();
-		print!("{:?} ", reason);
-
-		assert_eq!(
-			runtime.machine().return_value(),
-			test.unwrap_to_return_value()
-		);
-		assert_valid_state(test.0.post_state.as_ref().unwrap(), &backend.state());
-		assert_eq!(gas, expected_post_gas);
-		println!("succeed");
+		Event::print_compare(&steps, &el.events);
+		if let Some(gas_left) = test.0.gas_left {
+			println!("Gas Start: {:#x}", test.0.transaction.gas.0.as_u64());
+			println!("Gas Left:  {:#x}", gas_left.0.as_u64());
+			println!("Gas Used:  {}", test.0.transaction.gas.0.as_u64() - gas_left.0.as_u64());
+		}
+		// panic!("The steps are not equal");
 	}
+
+	println!("succeed");
 }

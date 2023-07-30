@@ -12,7 +12,7 @@ pub fn u256_to_h256(u: U256) -> H256 {
 pub fn unwrap_to_account(s: &ethjson::spec::Account) -> MemoryAccount {
 	MemoryAccount {
 		balance: s.balance.clone().unwrap().into(),
-		nonce: s.nonce.unwrap().0,
+		nonce: s.nonce.clone().unwrap().into(),
 		code: s.code.clone().unwrap().into(),
 		storage: s
 			.storage
