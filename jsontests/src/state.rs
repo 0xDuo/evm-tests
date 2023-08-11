@@ -222,7 +222,7 @@ impl JsonPrecompile {
 	}
 }
 
-pub fn generate_move_test_file(test: &Test, transaction: &Transaction, repository_root: &Path) {
+pub fn generate_move_test_file(test: &Test, transaction: &Transaction, devm_path: &Path) {
 	let mut content = String::from("");
 	content.push_str("#[test_only]\n");
 	content.push_str("module devm::steps {\n");
@@ -276,17 +276,11 @@ pub fn generate_move_test_file(test: &Test, transaction: &Transaction, repositor
 	content.push_str("  }\n");
 	content.push_str("}\n");
 
-	// Assumes `devm` is located in the folder next to this repository root
-	let file_path = repository_root
-		.parent()
-		.unwrap_or(&repository_root)
-		.join("devm")
-		.join("tests")
-		.join("steps.move");
+	let file_path = devm_path.join("tests").join("steps.move");
 	write(file_path, content).expect("Unable to write the steps test file");
 }
 
-pub fn test(name: &str, test: Test, repository_root: &Path) {
+pub fn test(name: &str, test: Test, devm_path: &Path) {
 	use std::thread;
 
 	const STACK_SIZE: usize = 16 * 1024 * 1024;
@@ -296,7 +290,7 @@ pub fn test(name: &str, test: Test, repository_root: &Path) {
 		// Spawn thread with explicit stack size
 		let child = thread::Builder::new()
 			.stack_size(STACK_SIZE)
-			.spawn_scoped(s, || test_run(name, test, repository_root))
+			.spawn_scoped(s, || test_run(name, test, devm_path))
 			.unwrap();
 
 		// Wait for thread to join
@@ -304,7 +298,7 @@ pub fn test(name: &str, test: Test, repository_root: &Path) {
 	});
 }
 
-fn test_run(name: &str, test: Test, repository_root: &Path) {
+fn test_run(name: &str, test: Test, devm_path: &Path) {
 	for (spec, states) in &test.0.post_states {
 		let (gasometer_config, delete_empty) = match spec {
 			ethjson::spec::ForkSpec::Istanbul => continue,
@@ -338,8 +332,8 @@ fn test_run(name: &str, test: Test, repository_root: &Path) {
 			let transaction = test.0.transaction.select(&state.indexes);
 			let mut backend = MemoryBackend::new(&vicinity, original_state.clone());
 
-			generate_move_test_file(&test, &transaction, repository_root);
-			let steps = crate::run_move_test();
+			generate_move_test_file(&test, &transaction, devm_path);
+			let steps = crate::run_move_test(devm_path);
 
 			// Only execute valid transactions
 			if let Ok(transaction) = crate::utils::transaction::validate(

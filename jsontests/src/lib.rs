@@ -7,7 +7,10 @@ use ethereum::Log;
 use evm_runtime::{ExitError, ExitReason};
 use primitive_types::{H160, H256};
 use serde::Deserialize;
-use std::{path::PathBuf, process::Command};
+use std::{
+	path::{Path, PathBuf},
+	process::Command,
+};
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -199,10 +202,12 @@ pub fn exit_reason_to_u8(exit_reason: &ExitReason) -> u8 {
 	}
 }
 
-pub fn run_move_test() -> anyhow::Result<Vec<Event>> {
+pub fn run_move_test(devm_path: &Path) -> anyhow::Result<Vec<Event>> {
+	let aptos_path_env = std::env::var("APTOS_PATH");
+	let aptos_program = aptos_path_env.as_deref().unwrap_or("aptos");
 	// aptos move test --bytecode-version 6 -i 10000000 -f steps
-	let command_output = Command::new("/data_disk/duo/aptos-core/target/release/aptos")
-		.current_dir("/data_disk/duo/devm")
+	let command_output = Command::new(aptos_program)
+		.current_dir(devm_path)
 		.arg("move")
 		.arg("test")
 		.args(["--bytecode-version", "6"])

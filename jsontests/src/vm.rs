@@ -76,7 +76,7 @@ impl Test {
 	}
 }
 
-pub fn generate_move_test_file(test: &Test, repository_root: &Path) {
+pub fn generate_move_test_file(test: &Test, devm_path: &Path) {
 	let mut content = String::from("");
 	content.push_str("#[test_only]\n");
 	content.push_str("module devm::steps {\n");
@@ -120,17 +120,11 @@ pub fn generate_move_test_file(test: &Test, repository_root: &Path) {
 	content.push_str("  }\n");
 	content.push_str("}\n");
 
-	// Assumes `devm` is located in the folder next to this repository root
-	let file_path = repository_root
-		.parent()
-		.unwrap_or(&repository_root)
-		.join("devm")
-		.join("tests")
-		.join("steps.move");
+	let file_path = devm_path.join("tests").join("steps.move");
 	write(file_path, content).expect("Unable to write the steps test file");
 }
 
-pub fn test(name: &str, test: Test, repository_root: &Path) {
+pub fn test(name: &str, test: Test, devm_path: &Path) {
 	print!("Running test {} ... ", name);
 	flush();
 
@@ -149,8 +143,8 @@ pub fn test(name: &str, test: Test, repository_root: &Path) {
 	let mut runtime =
 		evm::Runtime::new(code, data, context, config.stack_limit, config.memory_limit);
 
-	generate_move_test_file(&test, repository_root);
-	let steps = crate::run_move_test();
+	generate_move_test_file(&test, devm_path);
+	let steps = crate::run_move_test(devm_path);
 
 	let mut el = EventListener { events: vec![] };
 	let (reason, output) = using(&mut el, || {
