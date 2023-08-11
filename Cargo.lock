@@ -526,7 +526,8 @@ dependencies = [
 
 [[package]]
 name = "evm"
-version = "0.37.0"
+version = "0.39.1"
+source = "git+https://github.com/0xDuo/evm.git?tag=duo-v1.0.0#75773e512627e471bf828adf96848609fe8b95ce"
 dependencies = [
  "auto_impl",
  "environmental",
@@ -545,7 +546,8 @@ dependencies = [
 
 [[package]]
 name = "evm-core"
-version = "0.37.0"
+version = "0.39.0"
+source = "git+https://github.com/0xDuo/evm.git?tag=duo-v1.0.0#75773e512627e471bf828adf96848609fe8b95ce"
 dependencies = [
  "parity-scale-codec",
  "primitive-types",
@@ -555,7 +557,8 @@ dependencies = [
 
 [[package]]
 name = "evm-gasometer"
-version = "0.37.0"
+version = "0.39.0"
+source = "git+https://github.com/0xDuo/evm.git?tag=duo-v1.0.0#75773e512627e471bf828adf96848609fe8b95ce"
 dependencies = [
  "environmental",
  "evm-core",
@@ -591,7 +594,8 @@ dependencies = [
 
 [[package]]
 name = "evm-runtime"
-version = "0.37.0"
+version = "0.39.0"
+source = "git+https://github.com/0xDuo/evm.git?tag=duo-v1.0.0#75773e512627e471bf828adf96848609fe8b95ce"
 dependencies = [
  "auto_impl",
  "environmental",

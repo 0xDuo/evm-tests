@@ -6,12 +6,12 @@ authors = ["Wei Tang <hi@that.world>", "Parity Technologies <admin@parity.io>"]
 description = "SputnikVM - a Portable Blockchain Virtual Machine"
 repository = "https://github.com/sorpaas/rust-evm"
 keywords = ["no_std", "ethereum"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-evm = { path = "../evm", features = ["tracing"] }
-evm-runtime = { path = "../evm/runtime" }
+evm = { git = "https://github.com/0xDuo/evm.git", tag = "duo-v1.0.0", features = ["tracing"] }
+evm-runtime = { git = "https://github.com/0xDuo/evm.git", tag = "duo-v1.0.0" }
 ethereum = { version = "0.14.0", features = ["with-serde"] }
 primitive-types = "0.12"
 regex = "1.8"

@@ -28,6 +28,13 @@ fn main() {
 		)
 		.get_matches();
 
+	let repository_root = evm_jsontests::get_repository_root().unwrap();
+	// Assumes `devm` is located in the folder next to this repository root
+	let devm_path = repository_root
+		.parent()
+		.unwrap_or(&repository_root)
+		.join("devm");
+
 	if let Some(matches) = matches.subcommand_matches("vm") {
 		for file_name in matches.values_of("FILE").unwrap() {
 			let file = File::open(file_name).expect("Open file failed");
@@ -37,7 +44,7 @@ fn main() {
 				.expect("Parse test cases failed");
 
 			for (name, test) in coll {
-				vmtests::test(&name, test);
+				vmtests::test(&name, test, &devm_path);
 			}
 		}
 	}
@@ -51,7 +58,7 @@ fn main() {
 				.expect("Parse test cases failed");
 
 			for (name, test) in coll {
-				statetests::test(&name, test);
+				statetests::test(&name, test, &devm_path);
 			}
 		}
 	}
