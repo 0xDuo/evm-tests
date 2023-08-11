@@ -10,6 +10,13 @@ pub fn run(dir: &str) {
 	let mut dest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 	dest.push(dir);
 
+	let repository_root = evm_jsontests::get_repository_root().unwrap();
+	// Assumes `devm` is located in the folder next to this repository root
+	let devm_path = repository_root
+		.parent()
+		.unwrap_or(&repository_root)
+		.join("devm");
+
 	for entry in fs::read_dir(dest).unwrap() {
 		let entry = entry.unwrap();
 		let path = entry.path();
@@ -21,7 +28,7 @@ pub fn run(dir: &str) {
 			.expect("Parse test cases failed");
 
 		for (name, test) in coll {
-			vmtests::test(&name, test);
+			vmtests::test(&name, test, &devm_path);
 		}
 	}
 }
