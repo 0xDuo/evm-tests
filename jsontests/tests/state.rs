@@ -10,6 +10,8 @@ pub fn run(dir: &str) {
 	let mut dest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 	dest.push(dir);
 
+	let repository_root = evm_jsontests::get_repository_root().unwrap();
+
 	for entry in fs::read_dir(dest).unwrap() {
 		let entry = entry.unwrap();
 		if let Some(s) = entry.file_name().to_str() {
@@ -27,7 +29,7 @@ pub fn run(dir: &str) {
 			serde_json::from_reader(reader).expect("Parse test cases failed");
 
 		for (name, test) in coll {
-			statetests::test(&name, test);
+			statetests::test(&name, test, &repository_root);
 		}
 	}
 }

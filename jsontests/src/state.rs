@@ -20,6 +20,7 @@ use sha3::{Digest, Keccak256};
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::write;
+use std::path::Path;
 
 const GAS_CREATE: u64 = 32000; // Intrinsic create cost
 const GAS_TRANSACTION: u64 = 21000; // Intrinsic transaction cost
@@ -222,7 +223,7 @@ impl JsonPrecompile {
 	}
 }
 
-pub fn generate_move_test_file(test: &Test, transaction: &Transaction) {
+pub fn generate_move_test_file(test: &Test, transaction: &Transaction, repository_root: &Path) {
 	let mut content = String::from("");
 	content.push_str("#[test_only]\n");
 	content.push_str("module devm::steps {\n");
@@ -256,27 +257,34 @@ pub fn generate_move_test_file(test: &Test, transaction: &Transaction) {
 	content.push_str("  }\n");
 	content.push_str("}\n");
 
-	let file_path = "/Users/bulent/Desktop/Blockchain/EVM/devm/tests/steps.move";
+	// Assumes `devm` is located in the folder next to this repository root
+	let file_path = repository_root
+		.parent()
+		.unwrap_or(&repository_root)
+		.join("devm").join("tests")
+		.join("steps.move");
 	write(file_path, content).expect("Unable to write the steps test file");
 }
 
-pub fn test(name: &str, test: Test) {
+pub fn test(name: &str, test: Test, repository_root: &Path) {
 	use std::thread;
 
 	const STACK_SIZE: usize = 16 * 1024 * 1024;
 
-	let name = name.to_string();
-	// Spawn thread with explicit stack size
-	let child = thread::Builder::new()
-		.stack_size(STACK_SIZE)
-		.spawn(move || test_run(&name, test))
-		.unwrap();
+	// Use scoped threads to avoid cloning `name` and `repository_root`
+	thread::scope(|s| {
+		// Spawn thread with explicit stack size
+		let child = thread::Builder::new()
+			.stack_size(STACK_SIZE)
+			.spawn_scoped(s, || test_run(name, test, repository_root))
+			.unwrap();
 
-	// Wait for thread to join
-	child.join().unwrap();
+		// Wait for thread to join
+		child.join().unwrap();
+	});
 }
 
-fn test_run(name: &str, test: Test) {
+fn test_run(name: &str, test: Test, repository_root: &Path) {
 	for (spec, states) in &test.0.post_states {
 		let (gasometer_config, delete_empty) = match spec {
 			ethjson::spec::ForkSpec::Istanbul => continue,
@@ -310,7 +318,7 @@ fn test_run(name: &str, test: Test) {
 			let transaction = test.0.transaction.select(&state.indexes);
 			let mut backend = MemoryBackend::new(&vicinity, original_state.clone());
 
-			generate_move_test_file(&test, &transaction);
+			generate_move_test_file(&test, &transaction, repository_root);
 			let steps = crate::run_move_test();
 
 			// Only execute valid transactions
@@ -324,7 +332,7 @@ fn test_run(name: &str, test: Test) {
 				let data: Vec<u8> = transaction.data.into();
 				let metadata =
 					StackSubstateMetadata::new(transaction.gas_limit.into(), &gasometer_config);
-				let executor_state = MemoryStackState::new(metadata, &backend);
+				let executor_state = MemoryStackState::new(metadata, &mut backend);
 				let precompile = JsonPrecompile::precompile(spec).unwrap();
 				let mut executor = StackExecutor::new_with_precompiles(
 					executor_state,
@@ -394,9 +402,10 @@ fn test_run(name: &str, test: Test) {
 
 				let used_gas = executor.used_gas();
 				let (values, logs) = executor.into_state().deconstruct();
+				let logs: Vec<_> = logs.into_iter().collect();
 
-				backend.apply(values, logs, delete_empty);
-				el.events.push(crate::Event::Exit { output: reason.1, exit_reason: exit_reason_to_u8(&reason.0), logs: backend.logs().to_owned(), gas: gas_limit - used_gas });
+				backend.apply(values, logs.clone(), delete_empty);
+				el.events.push(crate::Event::Exit { output: reason.1, exit_reason: exit_reason_to_u8(&reason.0), logs, gas: gas_limit - used_gas });
 
 				let mut steps = steps.unwrap_or_else(|_| {println!("There's a problem with dEVM"); vec![]});
 				Event::copy_static_cafe_values(&mut steps, &el.events);

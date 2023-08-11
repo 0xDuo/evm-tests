@@ -6,6 +6,7 @@ use evm_runtime::tracing::using;
 use primitive_types::{H160, H256, U256};
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::rc::Rc;
 use std::fs::write;
 
@@ -75,7 +76,7 @@ impl Test {
 	}
 }
 
-pub fn generate_move_test_file(test: &Test) {
+pub fn generate_move_test_file(test: &Test, repository_root: &Path) {
 	let mut content = String::from("");
 	content.push_str("#[test_only]\n");
 	content.push_str("module devm::steps {\n");
@@ -104,11 +105,16 @@ pub fn generate_move_test_file(test: &Test) {
 	content.push_str("  }\n");
 	content.push_str("}\n");
 
-	let file_path = "/Users/bulent/Desktop/Blockchain/EVM/devm/tests/steps.move";
+		// Assumes `devm` is located in the folder next to this repository root
+	let file_path = repository_root
+		.parent()
+		.unwrap_or(&repository_root)
+		.join("devm").join("tests")
+		.join("steps.move");
 	write(file_path, content).expect("Unable to write the steps test file");
 }
 
-pub fn test(name: &str, test: Test) {
+pub fn test(name: &str, test: Test, repository_root: &Path) {
 	print!("Running test {} ... ", name);
 	flush();
 
@@ -117,7 +123,7 @@ pub fn test(name: &str, test: Test) {
 	let config = Config::shanghai();
 	let mut backend = MemoryBackend::new(&vicinity, original_state);
 	let metadata = StackSubstateMetadata::new(test.unwrap_to_gas_limit(), &config);
-	let state = MemoryStackState::new(metadata, &backend);
+	let state = MemoryStackState::new(metadata, &mut backend);
 	let precompile = BTreeMap::new();
 	let mut executor = StackExecutor::new_with_precompiles(state, &config, &precompile);
 
@@ -127,7 +133,7 @@ pub fn test(name: &str, test: Test) {
 	let mut runtime =
 		evm::Runtime::new(code, data, context, config.stack_limit, config.memory_limit);
 
-	generate_move_test_file(&test);
+	generate_move_test_file(&test, repository_root);
 	let steps = crate::run_move_test();
 
   let mut el = EventListener { events: vec![]};
@@ -140,9 +146,10 @@ pub fn test(name: &str, test: Test) {
 
 	let gas = executor.gas();
 	let (values, logs) = executor.into_state().deconstruct();
-	backend.apply(values, logs, false);
+	let logs: Vec<_> = logs.into_iter().collect();
+	backend.apply(values, logs.clone(), false);
 
-	el.events.push(crate::Event::Exit { output, exit_reason: exit_reason_to_u8(&reason), logs: backend.logs().to_owned(), gas });
+	el.events.push(crate::Event::Exit { output, exit_reason: exit_reason_to_u8(&reason), logs, gas });
 
 	let mut steps = steps.unwrap_or_else(|_| { println!("There's a problem with dEVM"); vec![] });
 	Event::copy_static_cafe_values(&mut steps, &el.events);

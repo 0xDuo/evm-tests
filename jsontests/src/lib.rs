@@ -7,7 +7,7 @@ use ethereum::Log;
 use evm_runtime::{ExitReason, ExitError};
 use primitive_types::{H160, H256};
 use serde::Deserialize;
-use std::process::Command;
+use std::{process::Command, path::PathBuf};
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -182,8 +182,8 @@ pub fn exit_reason_to_u8(exit_reason: &ExitReason) -> u8 {
 
 pub fn run_move_test() -> anyhow::Result<Vec<Event>> {
 	// aptos move test --bytecode-version 6 -i 10000000 -f steps
-	let command_output = Command::new("aptos")
-		.current_dir("/Users/bulent/Desktop/Blockchain/EVM/devm")
+	let command_output = Command::new("/data_disk/duo/aptos-core/target/release/aptos")
+		.current_dir("/data_disk/duo/devm")
 		.arg("move")
 		.arg("test")
 		.args(["--bytecode-version", "6"])
@@ -213,4 +213,20 @@ pub fn run_move_test() -> anyhow::Result<Vec<Event>> {
   let output = regex::Regex::new(r".*Error.*").unwrap().replace(&output, "");
 	// println!("{}", output);
 	serde_yaml::from_str(&output).map_err(anyhow::Error::from)
+}
+
+pub fn get_repository_root() -> anyhow::Result<PathBuf> {
+  let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()?;
+
+  if !output.status.success() {
+    return Err(anyhow::Error::msg(
+        "Command `git rev-parse --show-toplevel` failed",
+    ));
+  }
+
+  let output = String::from_utf8(output.stdout)?;
+  let path = PathBuf::try_from(output.trim())?;
+  Ok(path)
 }
