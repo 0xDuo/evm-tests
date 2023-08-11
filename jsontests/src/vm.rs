@@ -1,4 +1,4 @@
-use crate::{utils::*, Event, EventListener, exit_reason_to_u8};
+use crate::{exit_reason_to_u8, utils::*, Event, EventListener};
 use evm::backend::{ApplyBackend, MemoryAccount, MemoryBackend, MemoryVicinity};
 use evm::executor::stack::{MemoryStackState, StackExecutor, StackSubstateMetadata};
 use evm::Config;
@@ -6,9 +6,9 @@ use evm_runtime::tracing::using;
 use primitive_types::{H160, H256, U256};
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::fs::write;
 use std::path::Path;
 use std::rc::Rc;
-use std::fs::write;
 
 #[derive(Deserialize, Debug)]
 pub struct Test(ethjson::vm::Vm);
@@ -81,19 +81,34 @@ pub fn generate_move_test_file(test: &Test, repository_root: &Path) {
 	content.push_str("#[test_only]\n");
 	content.push_str("module devm::steps {\n");
 	content.push_str("  #[test(owner = @devm)]\n");
-  content.push_str("  fun test(owner: signer) {\n");
-  content.push_str("    aptos_framework::account::create_account_for_test(std::signer::address_of(&owner));\n");
-  content.push_str("    devm::evm::initialize(&owner);\n");
+	content.push_str("  fun test(owner: signer) {\n");
+	content.push_str(
+		"    aptos_framework::account::create_account_for_test(std::signer::address_of(&owner));\n",
+	);
+	content.push_str("    devm::evm::initialize(&owner);\n");
 	content.push_str("    let changes = &mut devm::state::new_changes();\n");
-	content.push_str(&format!("    devm::state::set_basic(changes, @{:?}, {}, {});\n", test.0.transaction.sender.0, 0, 1_000_000_000));
+	content.push_str(&format!(
+		"    devm::state::set_basic(changes, @{:?}, {}, {});\n",
+		test.0.transaction.sender.0, 0, 1_000_000_000
+	));
 	for (address, account) in test.unwrap_to_pre_state().into_iter() {
-		content.push_str(&format!("    devm::state::set_basic(changes, @{:?}, {}, {});\n", address, account.nonce, account.balance));
+		content.push_str(&format!(
+			"    devm::state::set_basic(changes, @{:?}, {}, {});\n",
+			address, account.nonce, account.balance
+		));
 		if account.code.len() > 0 {
-			content.push_str(&format!("    devm::state::set_code(changes, @{:?}, x\"{}\");\n", address, hex::encode(account.code)));
+			content.push_str(&format!(
+				"    devm::state::set_code(changes, @{:?}, x\"{}\");\n",
+				address,
+				hex::encode(account.code)
+			));
 		}
 		if account.storage.len() > 0 {
 			for (index, value) in account.storage.iter() {
-				content.push_str(&format!("    devm::state::set_storage(changes, @{:?}, {:?}, {:?});\n", address, index, value));
+				content.push_str(&format!(
+					"    devm::state::set_storage(changes, @{:?}, {:?}, {:?});\n",
+					address, index, value
+				));
 			}
 		}
 	}
@@ -105,11 +120,12 @@ pub fn generate_move_test_file(test: &Test, repository_root: &Path) {
 	content.push_str("  }\n");
 	content.push_str("}\n");
 
-		// Assumes `devm` is located in the folder next to this repository root
+	// Assumes `devm` is located in the folder next to this repository root
 	let file_path = repository_root
 		.parent()
 		.unwrap_or(&repository_root)
-		.join("devm").join("tests")
+		.join("devm")
+		.join("tests")
 		.join("steps.move");
 	write(file_path, content).expect("Unable to write the steps test file");
 }
@@ -136,22 +152,30 @@ pub fn test(name: &str, test: Test, repository_root: &Path) {
 	generate_move_test_file(&test, repository_root);
 	let steps = crate::run_move_test();
 
-  let mut el = EventListener { events: vec![]};
-  let (reason, output) = using(&mut el, || {
+	let mut el = EventListener { events: vec![] };
+	let (reason, output) = using(&mut el, || {
 		// let mut el2 = EventListener { events: vec![] };
 		// evm::gasometer::tracing::using(&mut el2, || {
-			executor.execute(&mut runtime)
+		executor.execute(&mut runtime)
 		// })
-  });
+	});
 
 	let gas = executor.gas();
 	let (values, logs) = executor.into_state().deconstruct();
 	let logs: Vec<_> = logs.into_iter().collect();
 	backend.apply(values, logs.clone(), false);
 
-	el.events.push(crate::Event::Exit { output, exit_reason: exit_reason_to_u8(&reason), logs, gas });
+	el.events.push(crate::Event::Exit {
+		output,
+		exit_reason: exit_reason_to_u8(&reason),
+		logs,
+		gas,
+	});
 
-	let mut steps = steps.unwrap_or_else(|_| { println!("There's a problem with dEVM"); vec![] });
+	let mut steps = steps.unwrap_or_else(|_| {
+		println!("There's a problem with dEVM");
+		vec![]
+	});
 	Event::copy_static_cafe_values(&mut steps, &el.events);
 
 	if steps == el.events {
@@ -161,7 +185,10 @@ pub fn test(name: &str, test: Test, repository_root: &Path) {
 		if let Some(gas_left) = test.0.gas_left {
 			println!("Gas Start: {:#x}", test.0.transaction.gas.0.as_u64());
 			println!("Gas Left:  {:#x}", gas_left.0.as_u64());
-			println!("Gas Used:  {}", test.0.transaction.gas.0.as_u64() - gas_left.0.as_u64());
+			println!(
+				"Gas Used:  {}",
+				test.0.transaction.gas.0.as_u64() - gas_left.0.as_u64()
+			);
 		}
 		// panic!("The steps are not equal");
 	}
