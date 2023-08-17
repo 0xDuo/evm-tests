@@ -157,7 +157,7 @@ impl EventListener {
 			output: self.intermediate_exit.output.clone(),
 			exit_reason: self.intermediate_exit.exit_reason,
 			logs,
-			gas: self.intermediate_exit.gas
+			gas: self.intermediate_exit.gas,
 		};
 		self.events.push(new_event);
 	}
@@ -166,76 +166,74 @@ impl EventListener {
 impl evm::tracing::EventListener for EventListener {
 	fn event(&mut self, event: evm::tracing::Event<'_>) {
 		use evm::tracing::Event;
-        match event {
-            Event::Call { .. } | Event::Create { .. } => {
-                self.current_step.depth += 1;
-            }
-            Event::Exit {
-                reason,
-                return_value,
-            } => {
-                self.intermediate_exit.exit_reason = exit_reason_to_u8(reason);
+		match event {
+			Event::Call { .. } | Event::Create { .. } => {
+				self.current_step.depth += 1;
+			}
+			Event::Exit {
+				reason,
+				return_value,
+			} => {
+				self.intermediate_exit.exit_reason = exit_reason_to_u8(reason);
 				self.intermediate_exit.output = return_value.to_vec();
-            }
-            Event::Suicide { .. }
-            | Event::PrecompileSubcall { .. }
-            | Event::TransactCall { .. }
-            | Event::TransactCreate { .. }
-            | Event::TransactCreate2 { .. } => (), // no useful information
-        }
+			}
+			Event::Suicide { .. }
+			| Event::PrecompileSubcall { .. }
+			| Event::TransactCall { .. }
+			| Event::TransactCreate { .. }
+			| Event::TransactCreate2 { .. } => (), // no useful information
+		}
 	}
 }
 
 impl evm::gasometer::tracing::EventListener for EventListener {
 	fn event(&mut self, event: evm::gasometer::tracing::Event) {
-        use evm::gasometer::tracing::Event;
-        match event {
-            Event::RecordCost { cost, snapshot } => {
-                self.current_step.gas_cost = cost;
-                if let Some(snapshot) = snapshot {
-                    self.current_step.gas_limit =
-                        snapshot
-                            .gas_limit
-                            .saturating_sub(snapshot.used_gas + snapshot.memory_gas);
-                }
-            }
-            Event::RecordDynamicCost {
-                gas_cost,
-                memory_gas,
-                gas_refund: _,
-                snapshot,
-            } => {
-                // In SputnikVM memory gas is cumulative (ie this event always shows the total) gas
-                // spent on memory up to this point. But geth traces simply show how much gas each step
-                // took, regardless of how that gas was used. So if this step caused an increase to the
-                // memory gas then we need to record that.
-                let memory_cost_diff = if memory_gas > self.current_memory_gas {
-                    memory_gas - self.current_memory_gas
-                } else {
-                    0
-                };
-                self.current_memory_gas = memory_gas;
-                self.current_step.gas_cost = gas_cost + memory_cost_diff;
-                if let Some(snapshot) = snapshot {
-                    self.current_step.gas_limit = 
-                        snapshot
-                            .gas_limit
-                            .saturating_sub(snapshot.used_gas + snapshot.memory_gas);
-                }
-            }
-            Event::RecordRefund {
-                refund: _,
-                snapshot,
-            } => {
-                // This one seems to show up at the end of a transaction, so it
-                // can be used to set the total gas used.
-                if let Some(snapshot) = snapshot {
-                    self.intermediate_exit.gas = snapshot.gas_limit - snapshot.used_gas;
-                }
-            }
-            Event::RecordTransaction { .. } | Event::RecordStipend { .. } => (), // not useful
+		use evm::gasometer::tracing::Event;
+		match event {
+			Event::RecordCost { cost, snapshot } => {
+				self.current_step.gas_cost = cost;
+				if let Some(snapshot) = snapshot {
+					self.current_step.gas_limit = snapshot
+						.gas_limit
+						.saturating_sub(snapshot.used_gas + snapshot.memory_gas);
+				}
+			}
+			Event::RecordDynamicCost {
+				gas_cost,
+				memory_gas,
+				gas_refund: _,
+				snapshot,
+			} => {
+				// In SputnikVM memory gas is cumulative (ie this event always shows the total) gas
+				// spent on memory up to this point. But geth traces simply show how much gas each step
+				// took, regardless of how that gas was used. So if this step caused an increase to the
+				// memory gas then we need to record that.
+				let memory_cost_diff = if memory_gas > self.current_memory_gas {
+					memory_gas - self.current_memory_gas
+				} else {
+					0
+				};
+				self.current_memory_gas = memory_gas;
+				self.current_step.gas_cost = gas_cost + memory_cost_diff;
+				if let Some(snapshot) = snapshot {
+					self.current_step.gas_limit = snapshot
+						.gas_limit
+						.saturating_sub(snapshot.used_gas + snapshot.memory_gas);
+				}
+			}
+			Event::RecordRefund {
+				refund: _,
+				snapshot,
+			} => {
+				// This one seems to show up at the end of a transaction, so it
+				// can be used to set the total gas used.
+				if let Some(snapshot) = snapshot {
+					self.intermediate_exit.gas = snapshot.gas_limit - snapshot.used_gas;
+				}
+			}
+			Event::RecordTransaction { .. } | Event::RecordStipend { .. } => (), // not useful
+		}
 	}
-}
 }
 
 impl evm_runtime::tracing::EventListener for EventListener {
@@ -274,7 +272,10 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				index: index.clone(),
 				value: value.clone(),
 			}),
-			RuntimeEvent::StepResult { result, return_value: _ } => {
+			RuntimeEvent::StepResult {
+				result,
+				return_value: _,
+			} => {
 				let new_event = Event::Step {
 					sender: self.current_step.sender,
 					contract: self.current_step.contract,
@@ -284,7 +285,6 @@ impl evm_runtime::tracing::EventListener for EventListener {
 					memory: self.current_step.memory.clone(),
 				};
 				self.events.push(new_event);
-
 
 				// Current sub-call completed, reduce depth by 1
 				if let Err(evm::Capture::Exit(_)) = result {

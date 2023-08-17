@@ -434,8 +434,6 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 			}
 
 			assert_valid_hash(&state.hash.0, backend.state());
-
-
 		}
 	}
 }
