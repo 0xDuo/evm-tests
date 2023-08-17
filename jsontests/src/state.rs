@@ -1,4 +1,3 @@
-use crate::exit_reason_to_u8;
 use crate::utils::*;
 use crate::Event;
 use crate::EventListener;
@@ -11,7 +10,6 @@ use evm::executor::stack::{
 	StackSubstateMetadata,
 };
 use evm::{Config, Context, ExitError, ExitSucceed};
-use evm_runtime::tracing::using;
 use lazy_static::lazy_static;
 use libsecp256k1::SecretKey;
 use primitive_types::{H160, H256, U256};
@@ -356,9 +354,9 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 					.map(|(address, keys)| (address.0, keys.into_iter().map(|k| k.0).collect()))
 					.collect();
 
-				let mut el = EventListener { events: vec![] };
+				let mut el = EventListener::default();
 				let Transaction { to, value, .. } = transaction;
-				let reason = using(&mut el, || {
+				crate::tracing::traced_call(&mut el, || {
 					// let mut el2 = EventListener { events: vec![] };
 					// evm::tracing::using(&mut el2, || {
 					// let mut el2 = EventListener { events: vec![] };
@@ -412,12 +410,7 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 				let logs: Vec<_> = logs.into_iter().collect();
 
 				backend.apply(values, logs.clone(), delete_empty);
-				el.events.push(crate::Event::Exit {
-					output: reason.1,
-					exit_reason: exit_reason_to_u8(&reason.0),
-					logs,
-					gas: gas_limit - used_gas,
-				});
+				el.finish(logs);
 
 				let mut steps = steps.unwrap_or_else(|_| {
 					println!("There's a problem with dEVM");
@@ -441,8 +434,6 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 			}
 
 			assert_valid_hash(&state.hash.0, backend.state());
-
-
 		}
 	}
 }

@@ -17,11 +17,21 @@ pub fn run(dir: &str) {
 		.unwrap_or(&repository_root)
 		.join("devm");
 
-		let mut entries = fs::read_dir(dest).unwrap()
-			.map(|res| res.map(|e| e.path()))
-			.filter(|p| !p.as_ref().unwrap().file_name().unwrap().to_str().unwrap().starts_with('.'))
-			.collect::<Result<Vec<_>, std::io::Error>>().unwrap();
-		entries.sort();
+	let mut entries = fs::read_dir(dest)
+		.unwrap()
+		.map(|res| res.map(|e| e.path()))
+		.filter(|p| {
+			!p.as_ref()
+				.unwrap()
+				.file_name()
+				.unwrap()
+				.to_str()
+				.unwrap()
+				.starts_with('.')
+		})
+		.collect::<Result<Vec<_>, std::io::Error>>()
+		.unwrap();
+	entries.sort();
 
 	for path in entries {
 		let file = File::open(path).expect("Open file failed");

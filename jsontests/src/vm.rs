@@ -2,7 +2,6 @@ use crate::{exit_reason_to_u8, utils::*, Event, EventListener};
 use evm::backend::{ApplyBackend, MemoryAccount, MemoryBackend, MemoryVicinity};
 use evm::executor::stack::{MemoryStackState, StackExecutor, StackSubstateMetadata};
 use evm::Config;
-use evm_runtime::tracing::using;
 use primitive_types::{H160, H256, U256};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -145,8 +144,8 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 	generate_move_test_file(&test, devm_path);
 	let steps = crate::run_move_test(devm_path);
 
-	let mut el = EventListener { events: vec![] };
-	let (reason, output) = using(&mut el, || {
+	let mut el = EventListener::default();
+	let (reason, output) = crate::tracing::traced_call(&mut el, || {
 		// let mut el2 = EventListener { events: vec![] };
 		// evm::gasometer::tracing::using(&mut el2, || {
 		executor.execute(&mut runtime)
@@ -158,6 +157,8 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 	let logs: Vec<_> = logs.into_iter().collect();
 	backend.apply(values, logs.clone(), false);
 
+	// Push exit event here instead of using `finish` since the `evm::tracing::Exit` may not have been emitted
+	// since VM tests do not use the top-level transact entry points.
 	el.events.push(crate::Event::Exit {
 		output,
 		exit_reason: exit_reason_to_u8(&reason),

@@ -1,6 +1,7 @@
 mod utils;
 
 pub mod state;
+pub mod tracing;
 pub mod vm;
 
 use ethereum::Log;
@@ -120,23 +121,118 @@ impl Event {
 	}
 }
 
+/// Filled by EventListener as it processes tracing from sputnikVM.
+/// Eventually pushed as `Event::Step` when finalized by `StepResult`.
+#[derive(Debug, Default)]
+struct IntermediateStep {
+	sender: H160,
+	contract: H160,
+	position: usize,
+	opcode: u8,
+	stack: Vec<H256>,
+	memory: Vec<u8>,
+	gas_limit: u64,
+	gas_cost: u64,
+	depth: u32,
+}
+
+#[derive(Debug, Default)]
+struct IntermediateExit {
+	output: Vec<u8>,
+	exit_reason: u8,
+	gas: u64,
+}
+
+#[derive(Debug, Default)]
 pub struct EventListener {
 	pub events: Vec<Event>,
+	current_step: IntermediateStep,
+	current_memory_gas: u64,
+	intermediate_exit: IntermediateExit,
+}
+
+impl EventListener {
+	pub fn finish(&mut self, logs: Vec<Log>) {
+		let new_event = Event::Exit {
+			output: self.intermediate_exit.output.clone(),
+			exit_reason: self.intermediate_exit.exit_reason,
+			logs,
+			gas: self.intermediate_exit.gas,
+		};
+		self.events.push(new_event);
+	}
 }
 
 impl evm::tracing::EventListener for EventListener {
 	fn event(&mut self, event: evm::tracing::Event<'_>) {
+		use evm::tracing::Event;
 		match event {
-			evt @ _ => println!("Evm Event: {:?}", evt),
-		};
+			Event::Call { .. } | Event::Create { .. } => {
+				self.current_step.depth += 1;
+			}
+			Event::Exit {
+				reason,
+				return_value,
+			} => {
+				self.intermediate_exit.exit_reason = exit_reason_to_u8(reason);
+				self.intermediate_exit.output = return_value.to_vec();
+			}
+			Event::Suicide { .. }
+			| Event::PrecompileSubcall { .. }
+			| Event::TransactCall { .. }
+			| Event::TransactCreate { .. }
+			| Event::TransactCreate2 { .. } => (), // no useful information
+		}
 	}
 }
 
 impl evm::gasometer::tracing::EventListener for EventListener {
 	fn event(&mut self, event: evm::gasometer::tracing::Event) {
+		use evm::gasometer::tracing::Event;
 		match event {
-			evt @ _ => println!("{:?}", evt),
-		};
+			Event::RecordCost { cost, snapshot } => {
+				self.current_step.gas_cost = cost;
+				if let Some(snapshot) = snapshot {
+					self.current_step.gas_limit = snapshot
+						.gas_limit
+						.saturating_sub(snapshot.used_gas + snapshot.memory_gas);
+				}
+			}
+			Event::RecordDynamicCost {
+				gas_cost,
+				memory_gas,
+				gas_refund: _,
+				snapshot,
+			} => {
+				// In SputnikVM memory gas is cumulative (ie this event always shows the total) gas
+				// spent on memory up to this point. But geth traces simply show how much gas each step
+				// took, regardless of how that gas was used. So if this step caused an increase to the
+				// memory gas then we need to record that.
+				let memory_cost_diff = if memory_gas > self.current_memory_gas {
+					memory_gas - self.current_memory_gas
+				} else {
+					0
+				};
+				self.current_memory_gas = memory_gas;
+				self.current_step.gas_cost = gas_cost + memory_cost_diff;
+				if let Some(snapshot) = snapshot {
+					self.current_step.gas_limit = snapshot
+						.gas_limit
+						.saturating_sub(snapshot.used_gas + snapshot.memory_gas);
+				}
+			}
+			Event::RecordRefund {
+				refund: _,
+				snapshot,
+			} => {
+				// This one seems to show up at the end of a transaction, so it
+				// can be used to set the total gas used.
+				if let Some(snapshot) = snapshot {
+					self.intermediate_exit.gas = snapshot.gas_limit - snapshot.used_gas;
+				}
+			}
+			Event::RecordTransaction { .. } | Event::RecordStipend { .. } => (), // not useful
+		}
 	}
 }
 
@@ -150,14 +246,14 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				position,
 				stack,
 				memory,
-			} => self.events.push(Event::Step {
-				sender: context.caller.clone(),
-				contract: context.address.clone(),
-				position: position.clone().unwrap(),
-				opcode: opcode.0,
-				stack: stack.data().clone(),
-				memory: memory.data().clone(),
-			}),
+			} => {
+				self.current_step.sender = context.caller;
+				self.current_step.contract = context.address;
+				self.current_step.position = *position.as_ref().unwrap();
+				self.current_step.opcode = opcode.0;
+				self.current_step.stack = stack.data().clone();
+				self.current_step.memory = memory.data().clone();
+			}
 			RuntimeEvent::SLoad {
 				address,
 				index,
@@ -176,7 +272,25 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				index: index.clone(),
 				value: value.clone(),
 			}),
-			_ => (),
+			RuntimeEvent::StepResult {
+				result,
+				return_value: _,
+			} => {
+				let new_event = Event::Step {
+					sender: self.current_step.sender,
+					contract: self.current_step.contract,
+					position: self.current_step.position,
+					opcode: self.current_step.opcode,
+					stack: self.current_step.stack.clone(),
+					memory: self.current_step.memory.clone(),
+				};
+				self.events.push(new_event);
+
+				// Current sub-call completed, reduce depth by 1
+				if let Err(evm::Capture::Exit(_)) = result {
+					self.current_step.depth = self.current_step.depth.saturating_sub(1);
+				}
+			}
 		};
 	}
 }
