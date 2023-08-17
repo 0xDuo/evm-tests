@@ -17,12 +17,14 @@ pub fn run(dir: &str) {
 		.unwrap_or(&repository_root)
 		.join("devm");
 
-	for entry in fs::read_dir(dest).unwrap() {
-		let entry = entry.unwrap();
-		let path = entry.path();
+		let mut entries = fs::read_dir(dest).unwrap()
+			.map(|res| res.map(|e| e.path()))
+			.filter(|p| !p.as_ref().unwrap().file_name().unwrap().to_str().unwrap().starts_with('.'))
+			.collect::<Result<Vec<_>, std::io::Error>>().unwrap();
+		entries.sort();
 
+	for path in entries {
 		let file = File::open(path).expect("Open file failed");
-
 		let reader = BufReader::new(file);
 		let coll = serde_json::from_reader::<_, HashMap<String, vmtests::Test>>(reader)
 			.expect("Parse test cases failed");

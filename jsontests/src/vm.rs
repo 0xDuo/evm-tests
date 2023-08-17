@@ -9,7 +9,6 @@ use std::collections::BTreeMap;
 use std::fs::write;
 use std::path::Path;
 use std::rc::Rc;
-use std::fs::write;
 
 #[derive(Deserialize, Debug)]
 pub struct Test(ethjson::vm::Vm);
@@ -88,10 +87,6 @@ pub fn generate_move_test_file(test: &Test, devm_path: &Path) {
 	);
 	content.push_str("    devm::evm::initialize(&owner);\n");
 	content.push_str("    let changes = &mut devm::state::new_changes();\n");
-	content.push_str(&format!(
-		"    devm::state::set_basic(changes, @{:?}, {}, {});\n",
-		test.0.transaction.sender.0, 0, 1_000_000_000
-	));
 	for (address, account) in test.unwrap_to_pre_state().into_iter() {
 		content.push_str(&format!(
 			"    devm::state::set_basic(changes, @{:?}, {}, {});\n",
@@ -115,8 +110,11 @@ pub fn generate_move_test_file(test: &Test, devm_path: &Path) {
 	}
 	content.push_str(&format!("    devm::state::apply(changes);\n\n"));
 	let context = test.unwrap_to_context();
+	// Below we keep the transfer value at 0, because we're only testing the runtime and not the transaction call
 	content.push_str(&format!("    let params = devm::evm::new_run_params(@{:?}, @{:?}, devm::state::get_code(changes, @{:?}), {}, x\"{}\", {:#x}, {:#x});\n", context.caller, context.address, context.address, context.apparent_value, hex::encode(test.unwrap_to_data().to_vec()), test.0.transaction.gas.0.as_u64(), test.0.transaction.gas_price.0.as_u64()));
-	content.push_str("    let (output, exit_reason, logs, gas) = devm::evm::run(params, &mut devm::state::new_changes(), true);\n");
+	content.push_str(&format!("    let test_params = devm::evm::new_test_params(1, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x});\n", test.0.env.author.0, test.0.env.difficulty.0, test.0.env.gas_limit.0, test.0.env.number.0, test.0.env.timestamp.0, test.0.env.block_base_fee_per_gas.0));
+	content.push_str("    devm::evm::disable_value_transfer(&mut params);\n"); // We're only testing VM runtime, not value transfers
+	content.push_str("    let (output, exit_reason, logs, gas, _) = devm::evm::run(params, &mut devm::state::new_changes(), test_params);\n");
 	content.push_str("    devm::evm::print_output(output, exit_reason, logs, gas);\n");
 	content.push_str("  }\n");
 	content.push_str("}\n");
@@ -134,7 +132,7 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 	let config = Config::shanghai();
 	let mut backend = MemoryBackend::new(&vicinity, original_state);
 	let metadata = StackSubstateMetadata::new(test.unwrap_to_gas_limit(), &config);
-	let state = MemoryStackState::new(metadata, &backend);
+	let state = MemoryStackState::new(metadata, &mut backend);
 	let precompile = BTreeMap::new();
 	let mut executor = StackExecutor::new_with_precompiles(state, &config, &precompile);
 
@@ -177,9 +175,17 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 		println!("Same steps");
 	} else {
 		Event::print_compare(&steps, &el.events);
+		println!(
+			"Gas Start: {:#x} ({})",
+			test.0.transaction.gas.0.as_u64(),
+			test.0.transaction.gas.0.as_u64()
+		);
 		if let Some(gas_left) = test.0.gas_left {
-			println!("Gas Start: {:#x}", test.0.transaction.gas.0.as_u64());
-			println!("Gas Left:  {:#x}", gas_left.0.as_u64());
+			println!(
+				"Gas Left:  {:#x} ({})",
+				gas_left.0.as_u64(),
+				gas_left.0.as_u64()
+			);
 			println!(
 				"Gas Used:  {}",
 				test.0.transaction.gas.0.as_u64() - gas_left.0.as_u64()
@@ -187,6 +193,4 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 		}
 		// panic!("The steps are not equal");
 	}
-
-	println!("succeed");
 }

@@ -600,8 +600,6 @@ dependencies = [
  "auto_impl",
  "environmental",
  "evm-core",
- "hex 0.4.0",
- "once_cell",
  "primitive-types",
  "sha3",
 ]

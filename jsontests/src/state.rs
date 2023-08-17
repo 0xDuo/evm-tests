@@ -22,9 +22,6 @@ use std::convert::TryInto;
 use std::fs::write;
 use std::path::Path;
 
-const GAS_CREATE: u64 = 32000; // Intrinsic create cost
-const GAS_TRANSACTION: u64 = 21000; // Intrinsic transaction cost
-
 #[derive(Deserialize, Debug)]
 pub struct Test(ethjson::test_helpers::state::State);
 
@@ -97,7 +94,6 @@ impl Test {
 		} else {
 			None
 		};
-
 
 		Some(MemoryVicinity {
 			gas_price,
@@ -234,12 +230,6 @@ pub fn generate_move_test_file(test: &Test, transaction: &Transaction, devm_path
 	);
 	content.push_str("    devm::evm::initialize(&owner);\n");
 	content.push_str("    let changes = &mut devm::state::new_changes();\n");
-	content.push_str(&format!(
-		"    devm::state::set_basic(changes, @{:?}, {}, {});\n",
-		test.unwrap_caller(),
-		0,
-		1_000_000_000
-	));
 	for (address, account) in test.unwrap_to_pre_state().into_iter() {
 		content.push_str(&format!(
 			"    devm::state::set_basic(changes, @{:?}, {}, {});\n",
@@ -262,18 +252,20 @@ pub fn generate_move_test_file(test: &Test, transaction: &Transaction, devm_path
 		}
 	}
 	content.push_str(&format!("    devm::state::apply(changes);\n\n"));
-	if let MaybeEmpty::Some(to) = transaction.to {
-		// Regular transaction
-		content.push_str(&format!("    let params = devm::evm::new_run_params(@{:?}, @{:?}, devm::state::get_code(changes, @{:?}), {}, x\"{}\", {:#x}, {:#x});\n", test.unwrap_caller(), to.0, to.0, transaction.value.0, hex::encode(transaction.data.to_vec()), transaction.gas_limit.0.as_u64() - GAS_TRANSACTION, transaction.gas_price.0.as_u64()));
-		content.push_str("    let (output, exit_reason, logs, gas) = devm::evm::run(params, &mut devm::state::new_changes(), true);\n");
-		content.push_str("    devm::evm::print_output(output, exit_reason, logs, gas);\n");
-	} else {
-		// Create transaction
-		content.push_str(&format!("    let params = devm::evm::new_run_params(@{:?}, @0x6295ee1b4f6dd65047762f924ecd367c17eabf8f, x\"{}\", {}, x\"\", {:#x}, {:#x});\n", test.unwrap_caller(), hex::encode(transaction.data.to_vec()), transaction.value.0, transaction.gas_limit.0.as_u64() - GAS_CREATE - GAS_TRANSACTION, transaction.gas_price.0.as_u64()));
-		content.push_str("    let (_, exit_reason, logs, gas) = devm::evm::run(params, &mut devm::state::new_changes(), true);\n");
-		content.push_str("    devm::evm::print_output(vector[], exit_reason, logs, gas);\n");
-		// Create doesn't print the output
-	}
+	content.push_str(&format!("    let test_params = devm::evm::new_test_params(1, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x});\n", test.0.env.author.0, test.0.env.difficulty.0, test.0.env.gas_limit.0, test.0.env.number.0, test.0.env.timestamp.0, test.0.env.block_base_fee_per_gas.0));
+	let to = match transaction.to {
+		MaybeEmpty::Some(to) => hex::encode(to.0),
+		MaybeEmpty::None => String::from(""),
+	};
+	content.push_str(&format!(
+		"    devm::evm::state_execute(@{:?}, x\"{}\", {}, x\"{}\", {:#x}, {:#x}, test_params);\n",
+		test.unwrap_caller(),
+		to,
+		transaction.value.0,
+		hex::encode(transaction.data.to_vec()),
+		transaction.gas_limit.0.as_u64(),
+		transaction.gas_price.0.as_u64()
+	));
 	content.push_str("  }\n");
 	content.push_str("}\n");
 
@@ -347,7 +339,7 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 				let data: Vec<u8> = transaction.data.into();
 				let metadata =
 					StackSubstateMetadata::new(transaction.gas_limit.into(), &gasometer_config);
-				let executor_state = MemoryStackState::new(metadata, &backend);
+				let executor_state = MemoryStackState::new(metadata, &mut backend);
 				let precompile = JsonPrecompile::precompile(spec).unwrap();
 				let mut executor = StackExecutor::new_with_precompiles(
 					executor_state,
@@ -434,19 +426,23 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 				Event::copy_static_cafe_values(&mut steps, &el.events);
 
 				if steps == el.events {
-					print!("Same steps ... ");
+					print!("same steps ... passed");
 				} else {
+					print!("different steps ... failed");
 					Event::print_compare(&steps, &el.events);
-					println!("Gas Start: {:#x}", gas_limit);
-					println!("Gas Left:  {:#x}", gas_limit - used_gas);
+					println!("Gas Start: {:#x} ({})", gas_limit, gas_limit);
+					println!(
+						"Gas Left:  {:#x} ({})",
+						gas_limit - used_gas,
+						gas_limit - used_gas
+					);
 					println!("Gas Used:  {}", used_gas);
-					// panic!("The steps are not equal");
 				}
 			}
 
 			assert_valid_hash(&state.hash.0, backend.state());
 
-			println!("passed");
+
 		}
 	}
 }
