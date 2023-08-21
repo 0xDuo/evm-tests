@@ -110,7 +110,7 @@ pub fn generate_move_test_file(test: &Test, devm_path: &Path) {
 	content.push_str(&format!("    devm::state::apply(changes);\n\n"));
 	let context = test.unwrap_to_context();
 	// Below we keep the transfer value at 0, because we're only testing the runtime and not the transaction call
-	content.push_str(&format!("    let params = devm::evm::new_run_params(@{:?}, @{:?}, devm::state::get_code(changes, @{:?}), {}, x\"{}\", {:#x}, {:#x});\n", context.caller, context.address, context.address, context.apparent_value, hex::encode(test.unwrap_to_data().to_vec()), test.0.transaction.gas.0.as_u64(), test.0.transaction.gas_price.0.as_u64()));
+	content.push_str(&format!("    let params = devm::evm::new_run_params(@{:?}, @{:?}, devm::state::get_code(changes, @{:?}), {}, x\"{}\", {:#x}, {:#x}, 0);\n", context.caller, context.address, context.address, context.apparent_value, hex::encode(test.unwrap_to_data().to_vec()), test.0.transaction.gas.0.as_u64(), test.0.transaction.gas_price.0.as_u64()));
 	content.push_str(&format!("    let test_params = devm::evm::new_test_params(1, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x});\n", test.0.env.author.0, test.0.env.difficulty.0, test.0.env.gas_limit.0, test.0.env.number.0, test.0.env.timestamp.0, test.0.env.block_base_fee_per_gas.0));
 	content.push_str("    devm::evm::disable_value_transfer(&mut params);\n"); // We're only testing VM runtime, not value transfers
 	content.push_str("    let (output, exit_reason, logs, gas, _) = devm::evm::run(params, &mut devm::state::new_changes(), test_params);\n");
@@ -146,10 +146,7 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 
 	let mut el = EventListener::default();
 	let (reason, output) = crate::tracing::traced_call(&mut el, || {
-		// let mut el2 = EventListener { events: vec![] };
-		// evm::gasometer::tracing::using(&mut el2, || {
 		executor.execute(&mut runtime)
-		// })
 	});
 
 	let gas = executor.gas();
@@ -159,6 +156,20 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 
 	// Push exit event here instead of using `finish` since the `evm::tracing::Exit` may not have been emitted
 	// since VM tests do not use the top-level transact entry points.
+	if !el.current_step_consumed {
+		let new_event = Event::Step {
+		  sender: el.current_step.sender,
+		  contract: el.current_step.contract,
+		  position: el.current_step.position,
+		  opcode: el.current_step.opcode,
+		  stack: el.current_step.stack,
+		  memory: el.current_step.memory,
+			gas_limit: el.current_step.gas_limit,
+			gas_cost: el.current_step.gas_cost,
+			depth: el.current_step.depth,
+		};
+		el.events.push(new_event);
+	}
 	el.events.push(crate::Event::Exit {
 		output,
 		exit_reason: exit_reason_to_u8(&reason),
@@ -166,11 +177,10 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 		gas,
 	});
 
-	let mut steps = steps.unwrap_or_else(|_| {
+	let steps = steps.unwrap_or_else(|_| {
 		println!("There's a problem with dEVM");
 		vec![]
 	});
-	Event::copy_static_cafe_values(&mut steps, &el.events);
 
 	if steps == el.events {
 		println!("Same steps");
@@ -192,6 +202,5 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 				test.0.transaction.gas.0.as_u64() - gas_left.0.as_u64()
 			);
 		}
-		// panic!("The steps are not equal");
 	}
 }

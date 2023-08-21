@@ -357,10 +357,6 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 				let mut el = EventListener::default();
 				let Transaction { to, value, .. } = transaction;
 				crate::tracing::traced_call(&mut el, || {
-					// let mut el2 = EventListener { events: vec![] };
-					// evm::tracing::using(&mut el2, || {
-					// let mut el2 = EventListener { events: vec![] };
-					// evm::gasometer::tracing::using(&mut el2, || {
 					match to {
 						ethjson::maybe::MaybeEmpty::Some(to) => {
 							let data = data;
@@ -382,8 +378,6 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 							executor.transact_create(caller, value, code, gas_limit, access_list)
 						}
 					}
-					// })
-					// })
 				});
 
 				let actual_fee = executor.fee(vicinity.gas_price);
@@ -412,16 +406,15 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 				backend.apply(values, logs.clone(), delete_empty);
 				el.finish(logs);
 
-				let mut steps = steps.unwrap_or_else(|_| {
+				let steps = steps.unwrap_or_else(|_| {
 					println!("There's a problem with dEVM");
 					vec![]
 				});
-				Event::copy_static_cafe_values(&mut steps, &el.events);
 
 				if steps == el.events {
-					print!("same steps ... passed");
+					println!("Same steps ... passed");
 				} else {
-					print!("different steps ... failed");
+					println!("Different steps ... failed");
 					Event::print_compare(&steps, &el.events);
 					println!("Gas Start: {:#x} ({})", gas_limit, gas_limit);
 					println!(

@@ -24,6 +24,9 @@ pub enum Event {
 		stack: Vec<H256>,
 		#[serde(with = "hex_serde")]
 		memory: Vec<u8>,
+		gas_limit: u64,
+		gas_cost: u64,
+		depth: u32,
 	},
 	SLoad {
 		address: H160,
@@ -75,50 +78,6 @@ impl Event {
 		}
 		println!();
 	}
-
-	fn copy_static_cafe_values(steps: &mut Vec<Event>, events: &Vec<Event>) {
-		// We copy the stack gas value on the next step after 0x5a opcode
-		let cafe = H256::from_low_u64_be(0xcafe);
-		if steps.len() == events.len() {
-			// let mut found = false;
-			for s in steps.iter_mut().zip(events) {
-				if let Event::Step { stack, .. } = s.0 {
-					if let Event::Step {
-						stack: el_stack, ..
-					} = s.1
-					{
-						if stack.len() == el_stack.len() {
-							for st in stack.iter_mut().zip(el_stack) {
-								if st.0 == &cafe {
-									*st.0 = *st.1; // Copy stack value from events
-								}
-							}
-						}
-					}
-				}
-				if let Event::SLoad { value, .. } = s.0 {
-					if let Event::SLoad {
-						value: el_value, ..
-					} = s.1
-					{
-						if value == &cafe {
-							*value = *el_value;
-						}
-					}
-				}
-				if let Event::SStore { value, .. } = s.0 {
-					if let Event::SStore {
-						value: el_value, ..
-					} = s.1
-					{
-						if value == &cafe {
-							*value = *el_value;
-						}
-					}
-				}
-			}
-		}
-	}
 }
 
 /// Filled by EventListener as it processes tracing from sputnikVM.
@@ -147,6 +106,7 @@ struct IntermediateExit {
 pub struct EventListener {
 	pub events: Vec<Event>,
 	current_step: IntermediateStep,
+	current_step_consumed: bool,
 	current_memory_gas: u64,
 	intermediate_exit: IntermediateExit,
 }
@@ -174,6 +134,7 @@ impl evm::tracing::EventListener for EventListener {
 				reason,
 				return_value,
 			} => {
+				self.current_step.depth = self.current_step.depth.saturating_sub(1);
 				self.intermediate_exit.exit_reason = exit_reason_to_u8(reason);
 				self.intermediate_exit.output = return_value.to_vec();
 			}
@@ -253,6 +214,7 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				self.current_step.opcode = opcode.0;
 				self.current_step.stack = stack.data().clone();
 				self.current_step.memory = memory.data().clone();
+				self.current_step_consumed = false;
 			}
 			RuntimeEvent::SLoad {
 				address,
@@ -273,7 +235,7 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				value: value.clone(),
 			}),
 			RuntimeEvent::StepResult {
-				result,
+				result: _,
 				return_value: _,
 			} => {
 				let new_event = Event::Step {
@@ -283,12 +245,13 @@ impl evm_runtime::tracing::EventListener for EventListener {
 					opcode: self.current_step.opcode,
 					stack: self.current_step.stack.clone(),
 					memory: self.current_step.memory.clone(),
+					gas_limit: self.current_step.gas_limit,
+					gas_cost: self.current_step.gas_cost,
+					depth: self.current_step.depth,
 				};
-				self.events.push(new_event);
-
-				// Current sub-call completed, reduce depth by 1
-				if let Err(evm::Capture::Exit(_)) = result {
-					self.current_step.depth = self.current_step.depth.saturating_sub(1);
+				if !self.current_step_consumed {
+					self.events.push(new_event);
+					self.current_step_consumed = true;
 				}
 			}
 		};
