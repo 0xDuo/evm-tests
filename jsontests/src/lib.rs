@@ -107,7 +107,7 @@ pub struct EventListener {
 	pub events: Vec<Event>,
 	current_step: IntermediateStep,
 	current_step_consumed: bool,
-	current_memory_gas: u64,
+	current_memory_gas: Vec<u64>,
 	intermediate_exit: IntermediateExit,
 }
 
@@ -129,12 +129,15 @@ impl evm::tracing::EventListener for EventListener {
 		match event {
 			Event::Call { .. } | Event::Create { .. } => {
 				self.current_step.depth += 1;
+				// Each call frame has its own memory gas
+				self.current_memory_gas.push(0);
 			}
 			Event::Exit {
 				reason,
 				return_value,
 			} => {
 				self.current_step.depth = self.current_step.depth.saturating_sub(1);
+				self.current_memory_gas.pop();
 				self.intermediate_exit.exit_reason = exit_reason_to_u8(reason);
 				self.intermediate_exit.output = return_value.to_vec();
 			}
@@ -165,16 +168,21 @@ impl evm::gasometer::tracing::EventListener for EventListener {
 				gas_refund: _,
 				snapshot,
 			} => {
+				if self.current_memory_gas.is_empty() {
+					self.current_memory_gas.push(0);
+				}
+				// Unwrap is safe because the `if` statement above guarantees at least one item in the Vec.
+				let current_memory_gas = self.current_memory_gas.last_mut().unwrap();
 				// In SputnikVM memory gas is cumulative (ie this event always shows the total) gas
 				// spent on memory up to this point. But geth traces simply show how much gas each step
 				// took, regardless of how that gas was used. So if this step caused an increase to the
 				// memory gas then we need to record that.
-				let memory_cost_diff = if memory_gas > self.current_memory_gas {
-					memory_gas - self.current_memory_gas
+				let memory_cost_diff = if memory_gas > *current_memory_gas {
+					memory_gas - *current_memory_gas
 				} else {
 					0
 				};
-				self.current_memory_gas = memory_gas;
+				*current_memory_gas = memory_gas;
 				self.current_step.gas_cost = gas_cost + memory_cost_diff;
 				if let Some(snapshot) = snapshot {
 					self.current_step.gas_limit = snapshot
