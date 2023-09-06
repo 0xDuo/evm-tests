@@ -112,6 +112,22 @@ pub struct EventListener {
 }
 
 impl EventListener {
+	fn save_current_step(&mut self) {
+		if !self.current_step_consumed {
+			self.events.push(crate::Event::Step {
+				sender: self.current_step.sender,
+				contract: self.current_step.contract,
+				position: self.current_step.position,
+				opcode: self.current_step.opcode,
+				stack: self.current_step.stack.clone(),
+				memory: self.current_step.memory.clone(),
+				gas_limit: self.current_step.gas_limit,
+				gas_cost: self.current_step.gas_cost,
+				depth: self.current_step.depth,
+			});
+		}
+	}
+
 	pub fn finish(&mut self, logs: Vec<Log>) {
 		let new_event = Event::Exit {
 			output: self.intermediate_exit.output.clone(),
@@ -136,6 +152,7 @@ impl evm::tracing::EventListener for EventListener {
 				reason,
 				return_value,
 			} => {
+				self.save_current_step();
 				self.current_step.depth = self.current_step.depth.saturating_sub(1);
 				self.current_memory_gas.pop();
 				self.intermediate_exit.exit_reason = exit_reason_to_u8(reason);
@@ -246,21 +263,8 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				result: _,
 				return_value: _,
 			} => {
-				let new_event = Event::Step {
-					sender: self.current_step.sender,
-					contract: self.current_step.contract,
-					position: self.current_step.position,
-					opcode: self.current_step.opcode,
-					stack: self.current_step.stack.clone(),
-					memory: self.current_step.memory.clone(),
-					gas_limit: self.current_step.gas_limit,
-					gas_cost: self.current_step.gas_cost,
-					depth: self.current_step.depth,
-				};
-				if !self.current_step_consumed {
-					self.events.push(new_event);
-					self.current_step_consumed = true;
-				}
+				self.save_current_step();
+				self.current_step_consumed = true;
 			}
 		};
 	}

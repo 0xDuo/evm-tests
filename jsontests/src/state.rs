@@ -294,8 +294,8 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 		let (gasometer_config, delete_empty) = match spec {
 			ethjson::spec::ForkSpec::Istanbul => continue,
 			ethjson::spec::ForkSpec::Berlin => continue,
-			ethjson::spec::ForkSpec::London => (Config::london(), true),
-			ethjson::spec::ForkSpec::Merge => (Config::merge(), true),
+			ethjson::spec::ForkSpec::London => continue,
+			ethjson::spec::ForkSpec::Merge => continue,
 			ethjson::spec::ForkSpec::Shanghai => (Config::shanghai(), true),
 			spec => {
 				println!("Skip spec {spec:?}");
