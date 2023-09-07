@@ -143,6 +143,16 @@ impl EventListener {
 		};
 		self.events.push(new_event);
 	}
+
+	/// Prune the final zeroes in 32 byte chunks
+	pub fn prune_memory(memory: &Vec<u8>) -> Vec<u8> {
+		let mut last_non_zero = 0;
+		memory.iter().enumerate().for_each(|(i, el)| {
+			if *el > 0 { last_non_zero = i + 1; }
+		});
+		last_non_zero = (last_non_zero + 31) / 32 * 32; // Ceil32
+		memory[0..last_non_zero].to_owned()
+	}
 }
 
 impl evm::tracing::EventListener for EventListener {
@@ -244,7 +254,7 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				self.current_step.position = *position.as_ref().unwrap();
 				self.current_step.opcode = opcode.0;
 				self.current_step.stack = stack.data().clone();
-				self.current_step.memory = memory.data().clone();
+				self.current_step.memory = Self::prune_memory(&memory.data());
 				self.current_step_consumed = false;
 			}
 			RuntimeEvent::SLoad {
