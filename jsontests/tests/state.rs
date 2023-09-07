@@ -1,4 +1,4 @@
-use evm_jsontests::state as statetests;
+use evm_jsontests::{state as statetests, TestStatus};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::BufReader;
@@ -40,7 +40,8 @@ pub fn run(dir: &str) {
 			serde_json::from_reader(reader).expect("Parse test cases failed");
 
 		for (name, test) in coll {
-			statetests::test(&name, test, &devm_path);
+			let result = statetests::test(&name, test, &devm_path);
+			assert_eq!(result, TestStatus::Passed);
 		}
 	}
 }
