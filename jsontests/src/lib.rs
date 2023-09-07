@@ -13,6 +13,12 @@ use std::{
 	process::Command,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TestStatus {
+	Passed,
+	Failed,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum Event {

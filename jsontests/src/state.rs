@@ -1,3 +1,4 @@
+use crate::TestStatus;
 use crate::utils::*;
 use crate::Event;
 use crate::EventListener;
@@ -271,7 +272,7 @@ pub fn generate_move_test_file(test: &Test, transaction: &Transaction, devm_path
 	write(file_path, content).expect("Unable to write the steps test file");
 }
 
-pub fn test(name: &str, test: Test, devm_path: &Path) {
+pub fn test(name: &str, test: Test, devm_path: &Path) -> TestStatus {
 	use std::thread;
 
 	const STACK_SIZE: usize = 16 * 1024 * 1024;
@@ -285,11 +286,11 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 			.unwrap();
 
 		// Wait for thread to join
-		child.join().unwrap();
-	});
+		child.join().unwrap()
+	})
 }
 
-fn test_run(name: &str, test: Test, devm_path: &Path) {
+fn test_run(name: &str, test: Test, devm_path: &Path) -> TestStatus {
 	for (spec, states) in &test.0.post_states {
 		let (gasometer_config, delete_empty) = match spec {
 			ethjson::spec::ForkSpec::Istanbul => continue,
@@ -317,7 +318,8 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 
 		for (i, state) in states.iter().enumerate() {
 			// if i != 0 { continue; }
-			print!("Running {}:{:?}:{} ... ", name, spec, i);
+			let full_name = format!("{}:{:?}:{}", name, spec, i);
+			print!("Running {full_name} ... ");
 			flush();
 
 			let transaction = test.0.transaction.select(&state.indexes);
@@ -423,10 +425,13 @@ fn test_run(name: &str, test: Test, devm_path: &Path) {
 						gas_limit - used_gas
 					);
 					println!("Gas Used:  {}", used_gas);
+					#[cfg(feature = "early_exit")]
+					return TestStatus::Failed;
 				}
 			}
 
 			assert_valid_hash(&state.hash.0, backend.state());
 		}
 	}
+	TestStatus::Passed
 }
