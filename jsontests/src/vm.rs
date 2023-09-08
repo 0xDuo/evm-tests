@@ -145,9 +145,7 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 	let steps = crate::run_move_test(devm_path);
 
 	let mut el = EventListener::default();
-	let (reason, output) = crate::tracing::traced_call(&mut el, || {
-		executor.execute(&mut runtime)
-	});
+	let (reason, output) = crate::tracing::traced_call(&mut el, || executor.execute(&mut runtime));
 
 	let gas = executor.gas();
 	let (values, logs) = executor.into_state().deconstruct();
@@ -158,12 +156,12 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 	// since VM tests do not use the top-level transact entry points.
 	if !el.current_step_consumed {
 		let new_event = Event::Step {
-		  sender: el.current_step.sender,
-		  contract: el.current_step.contract,
-		  position: el.current_step.position,
-		  opcode: el.current_step.opcode,
-		  stack: el.current_step.stack,
-		  memory: el.current_step.memory,
+			sender: el.current_step.sender,
+			contract: el.current_step.contract,
+			position: el.current_step.position,
+			opcode: el.current_step.opcode,
+			stack: el.current_step.stack,
+			memory: el.current_step.memory,
 			gas_limit: el.current_step.gas_limit,
 			gas_cost: el.current_step.gas_cost,
 			depth: el.current_step.depth,

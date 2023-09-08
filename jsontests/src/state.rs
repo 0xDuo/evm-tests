@@ -1,7 +1,7 @@
-use crate::TestStatus;
 use crate::utils::*;
 use crate::Event;
 use crate::EventListener;
+use crate::TestStatus;
 use ethjson::maybe::MaybeEmpty;
 use ethjson::spec::ForkSpec;
 use ethjson::transaction::Transaction;
@@ -358,27 +358,25 @@ fn test_run(name: &str, test: Test, devm_path: &Path) -> TestStatus {
 
 				let mut el = EventListener::default();
 				let Transaction { to, value, .. } = transaction;
-				crate::tracing::traced_call(&mut el, || {
-					match to {
-						ethjson::maybe::MaybeEmpty::Some(to) => {
-							let data = data;
-							let value = value.into();
+				crate::tracing::traced_call(&mut el, || match to {
+					ethjson::maybe::MaybeEmpty::Some(to) => {
+						let data = data;
+						let value = value.into();
 
-							executor.transact_call(
-								caller,
-								to.into(),
-								value,
-								data,
-								gas_limit,
-								access_list,
-							)
-						}
-						ethjson::maybe::MaybeEmpty::None => {
-							let code = data;
-							let value = value.into();
+						executor.transact_call(
+							caller,
+							to.into(),
+							value,
+							data,
+							gas_limit,
+							access_list,
+						)
+					}
+					ethjson::maybe::MaybeEmpty::None => {
+						let code = data;
+						let value = value.into();
 
-							executor.transact_create(caller, value, code, gas_limit, access_list)
-						}
+						executor.transact_create(caller, value, code, gas_limit, access_list)
 					}
 				});
 

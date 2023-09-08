@@ -148,7 +148,9 @@ impl EventListener {
 	pub fn prune_memory(memory: &Vec<u8>) -> Vec<u8> {
 		let mut last_non_zero = 0;
 		memory.iter().enumerate().for_each(|(i, el)| {
-			if *el > 0 { last_non_zero = i + 1; }
+			if *el > 0 {
+				last_non_zero = i + 1;
+			}
 		});
 		last_non_zero = (last_non_zero + 31) / 32 * 32; // Ceil32
 		if last_non_zero > memory.len() {
