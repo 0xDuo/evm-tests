@@ -151,6 +151,9 @@ impl EventListener {
 			if *el > 0 { last_non_zero = i + 1; }
 		});
 		last_non_zero = (last_non_zero + 31) / 32 * 32; // Ceil32
+		if last_non_zero > memory.len() {
+			last_non_zero = memory.len();
+		}
 		memory[0..last_non_zero].to_owned()
 	}
 }
