@@ -176,7 +176,8 @@ impl evm::tracing::EventListener for EventListener {
 				// Only save the current step if we didn't run out of gas;
 				// devm does not print the last step if it ran out of gas.
 				if let ExitReason::Error(ExitError::OutOfGas) = reason {
-					()
+					// If exit due to out of gas then there is no gas left.
+					self.intermediate_exit.gas = 0;
 				} else {
 					self.save_current_step();
 				}
