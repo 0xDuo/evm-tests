@@ -144,18 +144,13 @@ impl EventListener {
 		self.events.push(new_event);
 	}
 
-	/// Prune the final zeroes in 32 byte chunks
-	pub fn prune_memory(memory: &Vec<u8>) -> Vec<u8> {
-		let mut last_non_zero = 0;
-		memory.iter().enumerate().for_each(|(i, el)| {
-			if *el > 0 {
-				last_non_zero = i + 1;
-			}
-		});
-		last_non_zero = (last_non_zero + 31) / 32 * 32; // Ceil32
-		if last_non_zero > memory.len() {
-			last_non_zero = memory.len();
-		}
+	/// Prune the trailing zeros
+	pub fn prune_memory(memory: &[u8]) -> Vec<u8> {
+		let last_non_zero = memory
+			.iter()
+			.rposition(|x| *x != 0)
+			.map(|i| i + 1)
+			.unwrap_or_default();
 		memory[0..last_non_zero].to_owned()
 	}
 }
@@ -364,7 +359,17 @@ pub fn run_move_test(devm_path: &Path) -> anyhow::Result<Vec<Event>> {
 		.unwrap()
 		.replace(&output, "");
 	// println!("{}", output);
-	serde_yaml::from_str(&output).map_err(anyhow::Error::from)
+	let events: Vec<Event> = serde_yaml::from_str(&output).map_err(anyhow::Error::from)?;
+	Ok(events
+		.into_iter()
+		.map(|mut e| {
+			if let Event::Step { memory, .. } = &mut e {
+				let pruned = EventListener::prune_memory(memory);
+				*memory = pruned;
+			}
+			e
+		})
+		.collect())
 }
 
 pub fn get_repository_root() -> anyhow::Result<PathBuf> {
@@ -412,4 +417,35 @@ impl ExitBehavior {
 			listener.save_current_step();
 		}
 	}
+}
+
+#[test]
+fn test_prune_memory() {
+	// prune_memory strips tailing zeros, therefore an invariant of the function is
+	// `prune_memory(bytes || (x + 1) || zeros) == bytes || (x + 1)`, where `||` is
+	// concatenation, `bytes` is an arbitrary byte string, `x` is an arbitrary byte,
+	// and `zeros` is an arbitrary slice of zeros.
+	// This test checks that invariant.
+
+	fn check_prune_memory(bytes: &[u8], x: u8, num_zeros: usize) {
+		let prefix = [bytes, &[x.saturating_add(1)]].concat();
+		let input = [prefix.as_slice(), &vec![0_u8; num_zeros]].concat();
+		let result = EventListener::prune_memory(&input);
+		assert_eq!(result, prefix, "prune_memory failed for input {input:?}");
+	}
+
+	// Check the cases of empty result separately
+	assert_eq!(EventListener::prune_memory(&[]), Vec::<u8>::new());
+	assert_eq!(EventListener::prune_memory(&[0]), Vec::<u8>::new());
+	assert_eq!(EventListener::prune_memory(&[0, 0, 0]), Vec::<u8>::new());
+
+	// Check invariant
+	check_prune_memory(&[], 0, 0);
+	check_prune_memory(&[], 0, 10);
+	check_prune_memory(&[], 5, 0);
+	check_prune_memory(&[], 5, 5);
+	check_prune_memory(&[0, 0, 0], 7, 3);
+	check_prune_memory(&[0, 0, 1], 7, 3);
+	check_prune_memory(&[0, 1, 0], 7, 3);
+	check_prune_memory(&[1, 0, 0], 7, 3);
 }
