@@ -173,14 +173,7 @@ impl evm::tracing::EventListener for EventListener {
 				reason,
 				return_value,
 			} => {
-				// Only save the current step if we didn't run out of gas;
-				// devm does not print the last step if it ran out of gas.
-				if let ExitReason::Error(ExitError::OutOfGas) = reason {
-					// If exit due to out of gas then there is no gas left.
-					self.intermediate_exit.gas = 0;
-				} else {
-					self.save_current_step();
-				}
+				ExitBehavior::new(reason).execute(self);
 				self.current_step.depth = self.current_step.depth.saturating_sub(1);
 				self.current_memory_gas.pop();
 				self.intermediate_exit.exit_reason = exit_reason_to_u8(reason);
@@ -388,4 +381,35 @@ pub fn get_repository_root() -> anyhow::Result<PathBuf> {
 	let output = String::from_utf8(output.stdout)?;
 	let path = PathBuf::try_from(output.trim())?;
 	Ok(path)
+}
+
+struct ExitBehavior {
+	set_remaining_gas_to_zero: bool,
+	save_current_step: bool,
+}
+
+impl ExitBehavior {
+	fn new(reason: &ExitReason) -> Self {
+		// Certain errors (OutOfGas, OutOfOffset) require manually
+		// setting the gas to zero.
+		// Additionally, we do not save the last step in case of OutOfGas
+		let (set_remaining_gas_to_zero, save_current_step) = match reason {
+			ExitReason::Error(ExitError::OutOfOffset) => (true, true),
+			ExitReason::Error(ExitError::OutOfGas) => (true, false),
+			_ => (false, true),
+		};
+		Self {
+			set_remaining_gas_to_zero,
+			save_current_step,
+		}
+	}
+
+	fn execute(self, listener: &mut EventListener) {
+		if self.set_remaining_gas_to_zero {
+			listener.intermediate_exit.gas = 0;
+		}
+		if self.save_current_step {
+			listener.save_current_step();
+		}
+	}
 }
