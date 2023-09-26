@@ -391,27 +391,34 @@ pub fn get_repository_root() -> anyhow::Result<PathBuf> {
 struct ExitBehavior {
 	set_remaining_gas_to_zero: bool,
 	save_current_step: bool,
+	subtract_cost: bool,
 }
 
 impl ExitBehavior {
 	fn new(reason: &ExitReason) -> Self {
-		// Certain errors (OutOfGas, OutOfOffset) require manually
-		// setting the gas to zero.
-		// Additionally, we do not save the last step in case of OutOfGas
-		let (set_remaining_gas_to_zero, save_current_step) = match reason {
-			ExitReason::Error(ExitError::OutOfOffset) => (true, true),
-			ExitReason::Error(ExitError::OutOfGas) => (true, false),
-			_ => (false, true),
+		// Certain errors require manual intervention in the tracing to match devm.
+		// This manual intervention is needed only because spunik events may or may not
+		// be emitted depending on where exactly the error happens.
+		let (set_remaining_gas_to_zero, save_current_step, subtract_cost) = match reason {
+			ExitReason::Error(ExitError::OutOfOffset) => (true, true, false),
+			ExitReason::Error(ExitError::OutOfGas) => (true, false, false),
+			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true),
+			_ => (false, true, false),
 		};
 		Self {
 			set_remaining_gas_to_zero,
 			save_current_step,
+			subtract_cost,
 		}
 	}
 
 	fn execute(self, listener: &mut EventListener) {
 		if self.set_remaining_gas_to_zero {
 			listener.intermediate_exit.gas = 0;
+		}
+		if self.subtract_cost {
+			listener.current_step.gas_limit -= listener.current_step.gas_cost;
+			listener.current_step.gas_cost = 0;
 		}
 		if self.save_current_step {
 			listener.save_current_step();
