@@ -419,7 +419,8 @@ impl ExitBehavior {
 		// This manual intervention is needed only because spunik events may or may not
 		// be emitted depending on where exactly the error happens.
 		let (set_remaining_gas_to_zero, save_current_step, subtract_cost) = match reason {
-			ExitReason::Error(ExitError::OutOfOffset) => (true, true, false),
+			ExitReason::Error(ExitError::OutOfOffset)
+			| ExitReason::Error(ExitError::InvalidCode(evm::Opcode::INVALID)) => (true, true, false),
 			ExitReason::Error(ExitError::OutOfGas) => (true, false, false),
 			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true),
 			_ => (false, true, false),
