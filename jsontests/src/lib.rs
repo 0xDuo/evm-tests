@@ -121,10 +121,12 @@ impl EventListener {
 	fn save_current_step(&mut self) {
 		if !self.current_step_consumed {
 			// By definition `OpCode::INVALID` consumes all the remaining gas,
-			// but for reasons related to the details of how Sputnik handles this,
-			// it does not properly capture the gas limit. So we correct it here.
+			// but it is difficult to get Sputnik and devm to exactly agree on what the
+			// gas limit was before that happened. It's just a tracing issue, not
+			// a logic issue, so for consistency I choose to manually force both to 0.
 			if self.current_step.opcode == 0xfe {
-				self.current_step.gas_limit = self.current_step.gas_cost;
+				self.current_step.gas_limit = 0;
+				self.current_step.gas_cost = 0;
 			}
 			self.events.push(crate::Event::Step {
 				sender: self.current_step.sender,
@@ -369,9 +371,20 @@ pub fn run_move_test(devm_path: &Path) -> anyhow::Result<Vec<Event>> {
 	Ok(events
 		.into_iter()
 		.map(|mut e| {
-			if let Event::Step { memory, .. } = &mut e {
+			if let Event::Step {
+				memory,
+				opcode,
+				gas_limit,
+				gas_cost,
+				..
+			} = &mut e
+			{
 				let pruned = EventListener::prune_memory(memory);
 				*memory = pruned;
+				if *opcode == 0xfe {
+					*gas_cost = 0;
+					*gas_limit = 0;
+				}
 			}
 			e
 		})
