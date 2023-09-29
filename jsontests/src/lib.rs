@@ -120,6 +120,12 @@ pub struct EventListener {
 impl EventListener {
 	fn save_current_step(&mut self) {
 		if !self.current_step_consumed {
+			// By definition `OpCode::INVALID` consumes all the remaining gas,
+			// but for reasons related to the details of how Sputnik handles this,
+			// it does not properly capture the gas limit. So we correct it here.
+			if self.current_step.opcode == 0xfe {
+				self.current_step.gas_limit = self.current_step.gas_cost;
+			}
 			self.events.push(crate::Event::Step {
 				sender: self.current_step.sender,
 				contract: self.current_step.contract,
