@@ -120,6 +120,14 @@ pub struct EventListener {
 impl EventListener {
 	fn save_current_step(&mut self) {
 		if !self.current_step_consumed {
+			// By definition `OpCode::INVALID` consumes all the remaining gas,
+			// but it is difficult to get Sputnik and devm to exactly agree on what the
+			// gas limit was before that happened. It's just a tracing issue, not
+			// a logic issue, so for consistency I choose to manually force both to 0.
+			if self.current_step.opcode == 0xfe {
+				self.current_step.gas_limit = 0;
+				self.current_step.gas_cost = 0;
+			}
 			self.events.push(crate::Event::Step {
 				sender: self.current_step.sender,
 				contract: self.current_step.contract,
@@ -363,9 +371,20 @@ pub fn run_move_test(devm_path: &Path) -> anyhow::Result<Vec<Event>> {
 	Ok(events
 		.into_iter()
 		.map(|mut e| {
-			if let Event::Step { memory, .. } = &mut e {
+			if let Event::Step {
+				memory,
+				opcode,
+				gas_limit,
+				gas_cost,
+				..
+			} = &mut e
+			{
 				let pruned = EventListener::prune_memory(memory);
 				*memory = pruned;
+				if *opcode == 0xfe {
+					*gas_cost = 0;
+					*gas_limit = 0;
+				}
 			}
 			e
 		})
@@ -400,7 +419,8 @@ impl ExitBehavior {
 		// This manual intervention is needed only because spunik events may or may not
 		// be emitted depending on where exactly the error happens.
 		let (set_remaining_gas_to_zero, save_current_step, subtract_cost) = match reason {
-			ExitReason::Error(ExitError::OutOfOffset) => (true, true, false),
+			ExitReason::Error(ExitError::OutOfOffset)
+			| ExitReason::Error(ExitError::InvalidCode(evm::Opcode::INVALID)) => (true, true, false),
 			ExitReason::Error(ExitError::OutOfGas) => (true, false, false),
 			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true),
 			_ => (false, true, false),
