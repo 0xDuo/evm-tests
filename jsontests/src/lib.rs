@@ -4,6 +4,7 @@ pub mod state;
 pub mod tracing;
 pub mod vm;
 
+use crate::tracing::TracingGas;
 use ethereum::Log;
 use evm_runtime::{ExitError, ExitReason};
 use primitive_types::{H160, H256};
@@ -30,8 +31,8 @@ pub enum Event {
 		stack: Vec<H256>,
 		#[serde(with = "hex_serde")]
 		memory: Vec<u8>,
-		gas_limit: u64,
-		gas_cost: u64,
+		gas_limit: TracingGas,
+		gas_cost: TracingGas,
 		depth: u32,
 	},
 	SLoad {
@@ -96,8 +97,8 @@ struct IntermediateStep {
 	opcode: u8,
 	stack: Vec<H256>,
 	memory: Vec<u8>,
-	gas_limit: u64,
-	gas_cost: u64,
+	gas_limit: TracingGas,
+	gas_cost: TracingGas,
 	depth: u32,
 }
 
@@ -125,8 +126,8 @@ impl EventListener {
 			// gas limit was before that happened. It's just a tracing issue, not
 			// a logic issue, so for consistency I choose to manually force both to 0.
 			if self.current_step.opcode == 0xfe {
-				self.current_step.gas_limit = 0;
-				self.current_step.gas_cost = 0;
+				self.current_step.gas_limit = 0.into();
+				self.current_step.gas_cost = 0.into();
 			}
 			self.events.push(crate::Event::Step {
 				sender: self.current_step.sender,
@@ -196,11 +197,12 @@ impl evm::gasometer::tracing::EventListener for EventListener {
 		use evm::gasometer::tracing::Event;
 		match event {
 			Event::RecordCost { cost, snapshot } => {
-				self.current_step.gas_cost = cost;
+				self.current_step.gas_cost = cost.into();
 				if let Some(snapshot) = snapshot {
 					self.current_step.gas_limit = snapshot
 						.gas_limit
-						.saturating_sub(snapshot.used_gas + snapshot.memory_gas);
+						.saturating_sub(snapshot.used_gas + snapshot.memory_gas)
+						.into();
 				}
 			}
 			Event::RecordDynamicCost {
@@ -224,11 +226,12 @@ impl evm::gasometer::tracing::EventListener for EventListener {
 					0
 				};
 				*current_memory_gas = memory_gas;
-				self.current_step.gas_cost = gas_cost + memory_cost_diff;
+				self.current_step.gas_cost = (gas_cost + memory_cost_diff).into();
 				if let Some(snapshot) = snapshot {
 					self.current_step.gas_limit = snapshot
 						.gas_limit
-						.saturating_sub(snapshot.used_gas + snapshot.memory_gas);
+						.saturating_sub(snapshot.used_gas + snapshot.memory_gas)
+						.into();
 				}
 			}
 			Event::RecordRefund {
@@ -382,8 +385,8 @@ pub fn run_move_test(devm_path: &Path) -> anyhow::Result<Vec<Event>> {
 				let pruned = EventListener::prune_memory(memory);
 				*memory = pruned;
 				if *opcode == 0xfe {
-					*gas_cost = 0;
-					*gas_limit = 0;
+					*gas_cost = 0.into();
+					*gas_limit = 0.into();
 				}
 			}
 			e
@@ -411,6 +414,7 @@ struct ExitBehavior {
 	set_remaining_gas_to_zero: bool,
 	save_current_step: bool,
 	subtract_cost: bool,
+	ignore_gas: bool,
 }
 
 impl ExitBehavior {
@@ -418,17 +422,23 @@ impl ExitBehavior {
 		// Certain errors require manual intervention in the tracing to match devm.
 		// This manual intervention is needed only because spunik events may or may not
 		// be emitted depending on where exactly the error happens.
-		let (set_remaining_gas_to_zero, save_current_step, subtract_cost) = match reason {
+		let (set_remaining_gas_to_zero, save_current_step, subtract_cost, ignore_gas) = match reason
+		{
 			ExitReason::Error(ExitError::OutOfOffset)
-			| ExitReason::Error(ExitError::InvalidCode(evm::Opcode::INVALID)) => (true, true, false),
-			ExitReason::Error(ExitError::OutOfGas) => (true, false, false),
-			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true),
-			_ => (false, true, false),
+			| ExitReason::Error(ExitError::InvalidCode(evm::Opcode::INVALID)) => (true, true, false, false),
+			// This error comes up if `SSTORE` is called from a static context
+			ExitReason::Error(ExitError::InvalidCode(evm::Opcode::SSTORE)) => {
+				(false, true, false, true)
+			}
+			ExitReason::Error(ExitError::OutOfGas) => (true, false, false, false),
+			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true, false),
+			_ => (false, true, false, false),
 		};
 		Self {
 			set_remaining_gas_to_zero,
 			save_current_step,
 			subtract_cost,
+			ignore_gas,
 		}
 	}
 
@@ -438,7 +448,11 @@ impl ExitBehavior {
 		}
 		if self.subtract_cost {
 			listener.current_step.gas_limit -= listener.current_step.gas_cost;
-			listener.current_step.gas_cost = 0;
+			listener.current_step.gas_cost = 0.into();
+		}
+		if self.ignore_gas {
+			listener.current_step.gas_limit = TracingGas { value: None };
+			listener.current_step.gas_cost = TracingGas { value: None };
 		}
 		if self.save_current_step {
 			listener.save_current_step();
