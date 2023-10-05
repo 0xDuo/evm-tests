@@ -426,8 +426,8 @@ impl ExitBehavior {
 		{
 			ExitReason::Error(ExitError::OutOfOffset)
 			| ExitReason::Error(ExitError::InvalidCode(evm::Opcode::INVALID)) => (true, true, false, false),
-			// This error comes up if `SSTORE` is called from a static context
-			ExitReason::Error(ExitError::InvalidCode(evm::Opcode::SSTORE)) => {
+			// This error comes up if `SSTORE` or `SUICIDE` is called from a static context
+			ExitReason::Error(ExitError::InvalidCode(evm::Opcode::SSTORE | evm::Opcode::SUICIDE)) => {
 				(false, true, false, true)
 			}
 			ExitReason::Error(ExitError::OutOfGas) => (true, false, false, false),
