@@ -309,7 +309,8 @@ pub fn exit_reason_to_u8(exit_reason: &ExitReason) -> u8 {
 			ExitError::InvalidRange => 0x33,
 			ExitError::DesignatedInvalid => 0x34,
 			ExitError::CallTooDeep => 0x35,
-			ExitError::OutOfOffset => 0x38,
+			ExitError::CreateContractLimit => 0x37,
+			ExitError::OutOfOffset | ExitError::MaxNonce => 0x38,
 			ExitError::OutOfGas => 0x39,
 			ExitError::Other(_) => 0x3d,
 			ExitError::InvalidCode(_) => 0x3f,
@@ -430,6 +431,7 @@ impl ExitBehavior {
 			ExitReason::Error(ExitError::InvalidCode(evm::Opcode::SSTORE | evm::Opcode::SUICIDE)) => {
 				(false, true, false, true)
 			}
+			ExitReason::Error(ExitError::MaxNonce) => (false, false, false, false),
 			ExitReason::Error(ExitError::OutOfGas) => (true, false, false, false),
 			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true, false),
 			_ => (false, true, false, false),

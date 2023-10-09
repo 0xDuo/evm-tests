@@ -358,7 +358,7 @@ fn test_run(name: &str, test: Test, devm_path: &Path) -> TestStatus {
 
 				let mut el = EventListener::default();
 				let Transaction { to, value, .. } = transaction;
-				crate::tracing::traced_call(&mut el, || match to {
+				let (exit_reason, _) = crate::tracing::traced_call(&mut el, || match to {
 					ethjson::maybe::MaybeEmpty::Some(to) => {
 						let data = data;
 						let value = value.into();
@@ -403,7 +403,10 @@ fn test_run(name: &str, test: Test, devm_path: &Path) -> TestStatus {
 				let (values, logs) = executor.into_state().deconstruct();
 				let logs: Vec<_> = logs.into_iter().collect();
 
-				backend.apply(values, logs.clone(), delete_empty);
+				if exit_reason != evm_runtime::ExitReason::Error(ExitError::MaxNonce) {
+					backend.apply(values, logs.clone(), delete_empty);
+				}
+
 				el.finish(logs);
 
 				let steps = steps.unwrap_or_else(|_| {
