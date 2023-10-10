@@ -309,6 +309,7 @@ pub fn exit_reason_to_u8(exit_reason: &ExitReason) -> u8 {
 			ExitError::InvalidRange => 0x33,
 			ExitError::DesignatedInvalid => 0x34,
 			ExitError::CallTooDeep => 0x35,
+			ExitError::CreateCollision => 0x36,
 			ExitError::CreateContractLimit => 0x37,
 			ExitError::OutOfOffset | ExitError::MaxNonce => 0x38,
 			ExitError::OutOfGas => 0x39,
@@ -428,10 +429,11 @@ impl ExitBehavior {
 			ExitReason::Error(ExitError::OutOfOffset)
 			| ExitReason::Error(ExitError::InvalidCode(evm::Opcode::INVALID)) => (true, true, false, false),
 			// This error comes up if `SSTORE` or `SUICIDE` is called from a static context
-			ExitReason::Error(ExitError::InvalidCode(evm::Opcode::SSTORE | evm::Opcode::SUICIDE)) => {
-				(false, true, false, true)
-			}
-			ExitReason::Error(ExitError::MaxNonce) => (false, false, false, false),
+			ExitReason::Error(ExitError::InvalidCode(
+				evm::Opcode::SSTORE | evm::Opcode::SUICIDE,
+			)) => (false, true, false, true),
+			ExitReason::Error(ExitError::CreateCollision)
+			| ExitReason::Error(ExitError::MaxNonce) => (false, false, false, false),
 			ExitReason::Error(ExitError::OutOfGas) => (true, false, false, false),
 			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true, false),
 			_ => (false, true, false, false),
