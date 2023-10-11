@@ -435,7 +435,7 @@ impl ExitBehavior {
 			ExitReason::Error(ExitError::CreateCollision)
 			| ExitReason::Error(ExitError::MaxNonce) => (false, false, false, false),
 			ExitReason::Error(ExitError::OutOfGas) => (true, false, false, false),
-			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true, false),
+			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true, true),
 			_ => (false, true, false, false),
 		};
 		Self {
