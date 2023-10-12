@@ -6,7 +6,7 @@ pub mod vm;
 
 use crate::tracing::TracingGas;
 use ethereum::Log;
-use evm_runtime::{ExitError, ExitReason};
+use evm_runtime::{ExitError, ExitReason, Opcode};
 use primitive_types::{H160, H256};
 use serde::Deserialize;
 use std::{
@@ -432,17 +432,17 @@ impl ExitBehavior {
 		let (set_remaining_gas_to_zero, save_current_step, subtract_cost, ignore_gas) = match reason
 		{
 			ExitReason::Error(ExitError::OutOfOffset)
-			| ExitReason::Error(ExitError::InvalidCode(evm::Opcode::INVALID)) => (true, true, false, false),
+			| ExitReason::Error(ExitError::InvalidCode(Opcode::INVALID)) => (true, true, false, false),
 			// This error comes up if `SSTORE` or `SUICIDE` is called from a static context
 			ExitReason::Error(ExitError::InvalidCode(
-				evm::Opcode::SSTORE | evm::Opcode::SUICIDE,
+				Opcode::SSTORE | Opcode::SUICIDE,
 			)) => (false, true, false, true),
+			// Devm exits early for the following errors
 			ExitReason::Error(ExitError::CreateCollision)
 			| ExitReason::Error(ExitError::MaxNonce)
-			// Ignore any other invalid opcodes as they're skipped on `devm`
+			| ExitReason::Error(ExitError::StackUnderflow)
 			| ExitReason::Error(ExitError::InvalidCode(_)) => (false, false, false, false),
 			ExitReason::Error(ExitError::OutOfGas) => (true, false, false, false),
-			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true, true),
 			_ => (false, true, false, false),
 		};
 		Self {
