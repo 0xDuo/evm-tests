@@ -178,7 +178,9 @@ impl evm::tracing::EventListener for EventListener {
 				return_value,
 			} => {
 				ExitBehavior::new(reason).execute(self);
-				self.current_step.depth = self.current_step.depth.saturating_sub(1);
+				if self.current_step.depth > 1 {
+					self.current_step.depth = self.current_step.depth.saturating_sub(1);
+				}
 				self.current_memory_gas.pop();
 				self.intermediate_exit.exit_reason = exit_reason_to_u8(reason);
 				self.intermediate_exit.output = return_value.to_vec();
@@ -244,7 +246,10 @@ impl evm::gasometer::tracing::EventListener for EventListener {
 					self.intermediate_exit.gas = snapshot.gas_limit - snapshot.used_gas;
 				}
 			}
-			Event::RecordTransaction { .. } | Event::RecordStipend { .. } => (), // not useful
+			Event::RecordStipend { stipend, .. } => {
+				self.intermediate_exit.gas = stipend;
+			}
+			Event::RecordTransaction { .. } => (), // not useful
 		}
 	}
 }
@@ -422,7 +427,7 @@ struct ExitBehavior {
 impl ExitBehavior {
 	fn new(reason: &ExitReason) -> Self {
 		// Certain errors require manual intervention in the tracing to match devm.
-		// This manual intervention is needed only because spunik events may or may not
+		// This manual intervention is needed only because Sputnik events may or may not
 		// be emitted depending on where exactly the error happens.
 		let (set_remaining_gas_to_zero, save_current_step, subtract_cost, ignore_gas) = match reason
 		{
@@ -433,7 +438,9 @@ impl ExitBehavior {
 				evm::Opcode::SSTORE | evm::Opcode::SUICIDE,
 			)) => (false, true, false, true),
 			ExitReason::Error(ExitError::CreateCollision)
-			| ExitReason::Error(ExitError::MaxNonce) => (false, false, false, false),
+			| ExitReason::Error(ExitError::MaxNonce)
+			// Ignore any other invalid opcodes as they're skipped on `devm`
+			| ExitReason::Error(ExitError::InvalidCode(_)) => (false, false, false, false),
 			ExitReason::Error(ExitError::OutOfGas) => (true, false, false, false),
 			ExitReason::Error(ExitError::StackUnderflow) => (false, true, true, true),
 			_ => (false, true, false, false),
