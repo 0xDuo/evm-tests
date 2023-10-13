@@ -6,7 +6,7 @@ pub mod vm;
 
 use crate::tracing::TracingGas;
 use ethereum::Log;
-use evm_runtime::{ExitError, ExitReason, Opcode};
+use evm_runtime::{ExitError, ExitReason, Opcode, Capture};
 use primitive_types::{H160, H256};
 use serde::Deserialize;
 use std::{
@@ -292,10 +292,13 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				value: value.clone(),
 			}),
 			RuntimeEvent::StepResult {
-				result: _,
+				result,
 				return_value: _,
 			} => {
-				self.save_current_step();
+				if let Err(Capture::Exit(ExitReason::Error(_))) = result {
+				} else {
+					self.save_current_step();
+				};
 				self.current_step_consumed = true;
 			}
 		};
@@ -465,7 +468,7 @@ impl ExitBehavior {
 			listener.current_step.gas_limit = TracingGas { value: None };
 			listener.current_step.gas_cost = TracingGas { value: None };
 		}
-		if self.save_current_step {
+		if self.save_current_step && !listener.current_step_consumed {
 			listener.save_current_step();
 		}
 	}
