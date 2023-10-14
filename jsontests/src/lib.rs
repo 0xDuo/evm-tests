@@ -6,7 +6,7 @@ pub mod vm;
 
 use crate::tracing::TracingGas;
 use ethereum::Log;
-use evm_runtime::{ExitError, ExitReason, Opcode, Capture};
+use evm_runtime::{Capture, ExitError, ExitReason, Opcode};
 use primitive_types::{H160, H256};
 use serde::Deserialize;
 use std::{
@@ -113,9 +113,10 @@ struct IntermediateExit {
 pub struct EventListener {
 	pub events: Vec<Event>,
 	current_step: IntermediateStep,
-	current_step_consumed: bool,
 	current_memory_gas: Vec<u64>,
 	intermediate_exit: IntermediateExit,
+	current_step_consumed: bool,
+	last_step_trapped: bool,
 }
 
 impl EventListener {
@@ -144,6 +145,15 @@ impl EventListener {
 	}
 
 	pub fn finish(&mut self, logs: Vec<Log>) {
+		if self.last_step_trapped {
+			match self.intermediate_exit.exit_reason {
+				// Duo EVM early exit error types
+				0x30 | 0x36 | 0x39 => {
+					self.events.remove(self.events.len() - 1);
+				}
+				_ => {}
+			};
+		}
 		let new_event = Event::Exit {
 			output: self.intermediate_exit.output.clone(),
 			exit_reason: self.intermediate_exit.exit_reason,
@@ -295,10 +305,17 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				result,
 				return_value: _,
 			} => {
-				if let Err(Capture::Exit(ExitReason::Error(_))) = result {
-				} else {
-					self.save_current_step();
-				};
+				self.last_step_trapped = false;
+				match result {
+					Err(Capture::Exit(ExitReason::Error(_))) => (),
+					// DEVM exits early on error, however Sputnik still shows the last step as Trapped.
+					// If this happens we need remove this last step before the exit to match the results.
+					Err(Capture::Trap(_)) => {
+						self.last_step_trapped = true;
+						self.save_current_step();
+					}
+					_ => self.save_current_step(),
+				}
 				self.current_step_consumed = true;
 			}
 		};
@@ -319,8 +336,9 @@ pub fn exit_reason_to_u8(exit_reason: &ExitReason) -> u8 {
 			ExitError::CallTooDeep => 0x35,
 			ExitError::CreateCollision => 0x36,
 			ExitError::CreateContractLimit => 0x37,
-			ExitError::OutOfOffset | ExitError::MaxNonce => 0x38,
+			ExitError::MaxNonce => 0x38,
 			ExitError::OutOfGas => 0x39,
+			ExitError::OutOfOffset => 0x3c,
 			ExitError::Other(_) => 0x3d,
 			ExitError::InvalidCode(_) => 0x3f,
 			_ => 0x30,
@@ -379,7 +397,6 @@ pub fn run_move_test(devm_path: &Path) -> anyhow::Result<Vec<Event>> {
 	let output = regex::Regex::new(r".*Error.*")
 		.unwrap()
 		.replace(&output, "");
-	// println!("{}", output);
 	let events: Vec<Event> = serde_yaml::from_str(&output).map_err(anyhow::Error::from)?;
 	Ok(events
 		.into_iter()
@@ -423,8 +440,6 @@ pub fn get_repository_root() -> anyhow::Result<PathBuf> {
 struct ExitBehavior {
 	set_remaining_gas_to_zero: bool,
 	save_current_step: bool,
-	subtract_cost: bool,
-	ignore_gas: bool,
 }
 
 impl ExitBehavior {
@@ -432,41 +447,26 @@ impl ExitBehavior {
 		// Certain errors require manual intervention in the tracing to match devm.
 		// This manual intervention is needed only because Sputnik events may or may not
 		// be emitted depending on where exactly the error happens.
-		let (set_remaining_gas_to_zero, save_current_step, subtract_cost, ignore_gas) = match reason
-		{
+		let (set_remaining_gas_to_zero, save_current_step) = match reason {
 			ExitReason::Error(ExitError::OutOfOffset)
-			| ExitReason::Error(ExitError::InvalidCode(Opcode::INVALID)) => (true, true, false, false),
-			// This error comes up if `SSTORE` or `SUICIDE` is called from a static context
-			ExitReason::Error(ExitError::InvalidCode(
-				Opcode::SSTORE | Opcode::SUICIDE,
-			)) => (false, true, false, true),
+			| ExitReason::Error(ExitError::InvalidCode(Opcode::INVALID)) => (true, true),
 			// Devm exits early for the following errors
 			ExitReason::Error(ExitError::CreateCollision)
 			| ExitReason::Error(ExitError::MaxNonce)
 			| ExitReason::Error(ExitError::StackUnderflow)
-			| ExitReason::Error(ExitError::InvalidCode(_)) => (false, false, false, false),
-			ExitReason::Error(ExitError::OutOfGas) => (true, false, false, false),
-			_ => (false, true, false, false),
+			| ExitReason::Error(ExitError::InvalidCode(_)) => (false, false),
+			ExitReason::Error(ExitError::OutOfGas) => (true, false),
+			_ => (false, true),
 		};
 		Self {
 			set_remaining_gas_to_zero,
 			save_current_step,
-			subtract_cost,
-			ignore_gas,
 		}
 	}
 
 	fn execute(self, listener: &mut EventListener) {
 		if self.set_remaining_gas_to_zero {
 			listener.intermediate_exit.gas = 0;
-		}
-		if self.subtract_cost {
-			listener.current_step.gas_limit -= listener.current_step.gas_cost;
-			listener.current_step.gas_cost = 0.into();
-		}
-		if self.ignore_gas {
-			listener.current_step.gas_limit = TracingGas { value: None };
-			listener.current_step.gas_cost = TracingGas { value: None };
 		}
 		if self.save_current_step && !listener.current_step_consumed {
 			listener.save_current_step();

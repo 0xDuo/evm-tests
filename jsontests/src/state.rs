@@ -222,11 +222,12 @@ pub fn generate_move_test_file(test: &Test, transaction: &Transaction, devm_path
 	let mut content = String::from("");
 	content.push_str("#[test_only]\n");
 	content.push_str("module devm::steps {\n");
-	content.push_str("  #[test(owner = @devm)]\n");
-	content.push_str("  fun test(owner: signer) {\n");
+	content.push_str("  #[test(owner = @devm, std = @aptos_std)]\n");
+	content.push_str("  fun test(owner: signer, std: signer) {\n");
 	content.push_str(
 		"    aptos_framework::account::create_account_for_test(std::signer::address_of(&owner));\n",
 	);
+	content.push_str("    std::features::change_feature_flags(&std, vector[std::features::get_sha_512_and_ripemd_160_feature()], vector[]);\n");
 	content.push_str("    devm::evm::initialize(&owner);\n");
 	content.push_str("    let changes = &mut devm::state::new_changes();\n");
 	for (address, account) in test.unwrap_to_pre_state().into_iter() {
