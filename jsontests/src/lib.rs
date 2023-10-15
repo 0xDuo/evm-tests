@@ -305,16 +305,20 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				result,
 				return_value: _,
 			} => {
-				self.last_step_trapped = false;
-				match result {
-					Err(Capture::Exit(ExitReason::Error(_))) => (),
-					// DEVM exits early on error, however Sputnik still shows the last step as Trapped.
-					// If this happens we need remove this last step before the exit to match the results.
-					Err(Capture::Trap(_)) => {
-						self.last_step_trapped = true;
-						self.save_current_step();
+				// When the contract code is empty we get a step with zero sender and contract addresses
+				// We skip this step and only handle non-empty contract steps
+				if self.current_step.sender != H160::zero() || self.current_step.contract != H160::zero() {
+					self.last_step_trapped = false;
+					match result {
+						Err(Capture::Exit(ExitReason::Error(_))) => (),
+						// DEVM exits early on error, however Sputnik still shows the last step as Trapped.
+						// If this happens we need remove this last step before the exit to match the results.
+						Err(Capture::Trap(_)) => {
+							self.last_step_trapped = true;
+							self.save_current_step();
+						}
+						_ => self.save_current_step(),
 					}
-					_ => self.save_current_step(),
 				}
 				self.current_step_consumed = true;
 			}
