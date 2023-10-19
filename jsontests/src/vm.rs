@@ -1,7 +1,8 @@
-use crate::{exit_reason_to_u8, utils::*, Event, EventListener};
+use crate::{exit_reason_to_u8, utils::*, Event, EventListener, ExitBehavior};
 use evm::backend::{ApplyBackend, MemoryAccount, MemoryBackend, MemoryVicinity};
 use evm::executor::stack::{MemoryStackState, StackExecutor, StackSubstateMetadata};
 use evm::Config;
+use evm_runtime::{ExitError, ExitReason};
 use primitive_types::{H160, H256, U256};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -113,7 +114,7 @@ pub fn generate_move_test_file(test: &Test, devm_path: &Path) {
 	content.push_str(&format!("    let params = devm::evm::new_run_params(@{:?}, @{:?}, devm::state::get_code(changes, @{:?}), {}, x\"{}\", {:#x}, {:#x}, 0);\n", context.caller, context.address, context.address, context.apparent_value, hex::encode(test.unwrap_to_data().to_vec()), test.0.transaction.gas.0.as_u64(), test.0.transaction.gas_price.0.as_u64()));
 	content.push_str(&format!("    let test_params = devm::evm::new_test_params(1, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x});\n", test.0.env.author.0, test.0.env.difficulty.0, test.0.env.gas_limit.0, test.0.env.number.0, test.0.env.timestamp.0, test.0.env.block_base_fee_per_gas.0));
 	content.push_str("    devm::evm::disable_value_transfer(&mut params);\n"); // We're only testing VM runtime, not value transfers
-	content.push_str("    let (output, exit_reason, logs, gas, _) = devm::evm::run(params, &mut devm::state::new_changes(), test_params);\n");
+	content.push_str("    let (output, exit_reason, logs, gas, _) = devm::evm::destructure_run_result(devm::evm::run(params, &mut devm::state::new_changes(), test_params));\n");
 	content.push_str("    devm::evm::print_output(output, exit_reason, logs, gas);\n");
 	content.push_str("  }\n");
 	content.push_str("}\n");
@@ -147,27 +148,38 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 	let mut el = EventListener::default();
 	let (reason, output) = crate::tracing::traced_call(&mut el, || executor.execute(&mut runtime));
 
-	let gas = executor.gas();
+	let mut gas = executor.gas();
 	let (values, logs) = executor.into_state().deconstruct();
 	let logs: Vec<_> = logs.into_iter().collect();
 	backend.apply(values, logs.clone(), false);
 
+	let exit_behavior = ExitBehavior::new(&reason);
+	exit_behavior.execute(&mut el);
+	if exit_behavior.set_remaining_gas_to_zero {
+		gas = 0;
+	}
+	// When Duo EVM doesn't exit with an early on error, it still prints out the step, ie. InvalidJump
+	if exit_behavior.save_current_step && reason.is_error() {
+		el.current_step_consumed = false;
+		el.save_current_step();
+		gas = 0;
+	}
+	// Last trapped errors are added to Sputnik but not Duo EVM
+	if el.last_step_trapped {
+		match reason {
+			// Duo EVM early exit error types
+			ExitReason::Error(ExitError::CreateCollision)
+			| ExitReason::Error(ExitError::StackUnderflow)
+			| ExitReason::Error(ExitError::StackOverflow)
+			| ExitReason::Error(ExitError::OutOfGas) => {
+				el.events.remove(el.events.len() - 1);
+			}
+			_ => {}
+		};
+	}
+
 	// Push exit event here instead of using `finish` since the `evm::tracing::Exit` may not have been emitted
 	// since VM tests do not use the top-level transact entry points.
-	if !el.current_step_consumed {
-		let new_event = Event::Step {
-			sender: el.current_step.sender,
-			contract: el.current_step.contract,
-			position: el.current_step.position,
-			opcode: el.current_step.opcode,
-			stack: el.current_step.stack,
-			memory: el.current_step.memory,
-			gas_limit: el.current_step.gas_limit,
-			gas_cost: el.current_step.gas_cost,
-			depth: el.current_step.depth,
-		};
-		el.events.push(new_event);
-	}
 	el.events.push(crate::Event::Exit {
 		output,
 		exit_reason: exit_reason_to_u8(&reason),

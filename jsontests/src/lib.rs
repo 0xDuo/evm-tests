@@ -153,7 +153,7 @@ impl EventListener {
 		if self.last_step_trapped {
 			match self.intermediate_exit.exit_reason {
 				// Duo EVM early exit error types
-				0x30 | 0x36 | 0x39 => {
+				0x30 | 0x31 | 0x36 | 0x39 => {
 					self.events.remove(self.events.len() - 1);
 				}
 				_ => {}
@@ -459,8 +459,8 @@ impl ExitBehavior {
 			ExitReason::Error(ExitError::CreateCollision)
 			| ExitReason::Error(ExitError::MaxNonce)
 			| ExitReason::Error(ExitError::StackUnderflow)
-			| ExitReason::Error(ExitError::InvalidCode(_)) => (false, false),
-			ExitReason::Error(ExitError::OutOfGas) => (true, false),
+			| ExitReason::Error(ExitError::InvalidCode(_))
+			| ExitReason::Error(ExitError::OutOfGas) => (true, false),
 			_ => (false, true),
 		};
 		Self {
@@ -469,7 +469,7 @@ impl ExitBehavior {
 		}
 	}
 
-	fn execute(self, listener: &mut EventListener) {
+	fn execute(&self, listener: &mut EventListener) {
 		if self.set_remaining_gas_to_zero {
 			listener.intermediate_exit.gas = 0;
 		}
