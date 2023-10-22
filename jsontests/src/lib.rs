@@ -6,7 +6,7 @@ pub mod vm;
 
 use crate::tracing::TracingGas;
 use ethereum::Log;
-use evm_runtime::{Capture, ExitError, ExitReason, Opcode};
+use evm_runtime::{ExitError, ExitReason, Opcode};
 use primitive_types::{H160, H256};
 use serde::Deserialize;
 use std::{
@@ -116,7 +116,6 @@ pub struct EventListener {
 	current_memory_gas: Vec<u64>,
 	intermediate_exit: IntermediateExit,
 	current_step_consumed: bool,
-	last_step_trapped: bool,
 }
 
 impl EventListener {
@@ -150,15 +149,6 @@ impl EventListener {
 	}
 
 	pub fn finish(&mut self, logs: Vec<Log>) {
-		if self.last_step_trapped {
-			match self.intermediate_exit.exit_reason {
-				// Duo EVM early exit error types
-				0x30 | 0x31 | 0x36 | 0x39 => {
-					self.events.remove(self.events.len() - 1);
-				}
-				_ => {}
-			};
-		}
 		let new_event = Event::Exit {
 			output: self.intermediate_exit.output.clone(),
 			exit_reason: self.intermediate_exit.exit_reason,
@@ -307,20 +297,10 @@ impl evm_runtime::tracing::EventListener for EventListener {
 				value: value.clone(),
 			}),
 			RuntimeEvent::StepResult {
-				result,
+				result: _,
 				return_value: _,
 			} => {
-				self.last_step_trapped = false;
-				match result {
-					Err(Capture::Exit(ExitReason::Error(_))) => (),
-					// DEVM exits early on error, however Sputnik still shows the last step as Trapped.
-					// If this happens we need remove this last step before the exit to match the results.
-					Err(Capture::Trap(_)) => {
-						self.last_step_trapped = true;
-						self.save_current_step();
-					}
-					_ => self.save_current_step(),
-				}
+				self.save_current_step();
 				self.current_step_consumed = true;
 			}
 		};
@@ -459,8 +439,11 @@ impl ExitBehavior {
 			ExitReason::Error(ExitError::CreateCollision)
 			| ExitReason::Error(ExitError::MaxNonce)
 			| ExitReason::Error(ExitError::StackUnderflow)
+			| ExitReason::Error(ExitError::StackOverflow)
 			| ExitReason::Error(ExitError::InvalidCode(_))
 			| ExitReason::Error(ExitError::OutOfGas) => (true, false),
+			// Any other error should include the trace with zero gas
+			ExitReason::Error(_) => (true, true),
 			_ => (false, true),
 		};
 		Self {
@@ -473,8 +456,13 @@ impl ExitBehavior {
 		if self.set_remaining_gas_to_zero {
 			listener.intermediate_exit.gas = 0;
 		}
-		if self.save_current_step && !listener.current_step_consumed {
+		if self.save_current_step {
 			listener.save_current_step();
+		} else if listener.current_step_consumed
+			&& listener.current_step.depth <= 1
+			&& listener.events.len() > 0
+		{
+			listener.events.remove(listener.events.len() - 1);
 		}
 	}
 }

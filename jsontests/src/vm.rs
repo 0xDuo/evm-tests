@@ -148,44 +148,18 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 	let mut el = EventListener::default();
 	let (reason, output) = crate::tracing::traced_call(&mut el, || executor.execute(&mut runtime));
 
-	let mut gas = executor.gas();
+	let gas = executor.gas();
 	let (values, logs) = executor.into_state().deconstruct();
 	let logs: Vec<_> = logs.into_iter().collect();
 	backend.apply(values, logs.clone(), false);
 
-	let exit_behavior = ExitBehavior::new(&reason);
-	exit_behavior.execute(&mut el);
-	if exit_behavior.set_remaining_gas_to_zero {
-		gas = 0;
-	}
-	// When Duo EVM doesn't exit with an early on error, it still prints out the step, ie. InvalidJump
-	if exit_behavior.save_current_step && reason.is_error() {
-		el.current_step_consumed = false;
-		el.save_current_step();
-		gas = 0;
-	}
-	// Last trapped errors are added to Sputnik but not Duo EVM
-	if el.last_step_trapped {
-		match reason {
-			// Duo EVM early exit error types
-			ExitReason::Error(ExitError::CreateCollision)
-			| ExitReason::Error(ExitError::StackUnderflow)
-			| ExitReason::Error(ExitError::StackOverflow)
-			| ExitReason::Error(ExitError::OutOfGas) => {
-				el.events.remove(el.events.len() - 1);
-			}
-			_ => {}
-		};
-	}
-
-	// Push exit event here instead of using `finish` since the `evm::tracing::Exit` may not have been emitted
-	// since VM tests do not use the top-level transact entry points.
-	el.events.push(crate::Event::Exit {
-		output,
-		exit_reason: exit_reason_to_u8(&reason),
-		logs,
-		gas,
-	});
+	// Handle the exit event here since the `evm::tracing::Exit` is not emitted
+	// because the VM tests do not use the top-level transact entry points.
+	el.intermediate_exit.output = output;
+	el.intermediate_exit.exit_reason = exit_reason_to_u8(&reason);
+	el.intermediate_exit.gas = gas;
+	ExitBehavior::new(&reason).execute(&mut el);
+	el.finish(logs);
 
 	let steps = steps.unwrap_or_else(|_| {
 		println!("There's a problem with dEVM");
