@@ -125,6 +125,12 @@ impl EventListener {
 		if self.current_step.sender == H160::zero() && self.current_step.contract == H160::zero() {
 			return;
 		}
+		// If the gas limit is lower than the gas cost then devm will have triggered an OOG exit
+		// (which we skip in the logging). Sputnik will also trigger OOG eventually too, but
+		// we don't want to log the step to be consistent with devm.
+		if self.current_step.gas_limit < self.current_step.gas_cost {
+			return;
+		}
 		if !self.current_step_consumed {
 			// By definition `OpCode::INVALID` consumes all the remaining gas,
 			// but it is difficult to get Sputnik and devm to exactly agree on what the
@@ -459,7 +465,6 @@ impl ExitBehavior {
 		if self.save_current_step {
 			listener.save_current_step();
 		} else if listener.current_step_consumed
-			&& listener.current_step.depth <= 1
 			&& listener.events.len() > 0
 		{
 			listener.events.remove(listener.events.len() - 1);

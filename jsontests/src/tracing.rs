@@ -49,6 +49,14 @@ impl PartialEq for TracingGas {
 	}
 }
 
+impl PartialOrd for TracingGas {
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+		self.value
+			.as_ref()
+			.and_then(|x| other.value.as_ref().and_then(|y| x.partial_cmp(y)))
+	}
+}
+
 impl Default for TracingGas {
 	fn default() -> Self {
 		Self { value: Some(0) }
