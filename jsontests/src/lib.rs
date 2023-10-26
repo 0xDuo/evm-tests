@@ -330,6 +330,9 @@ pub fn exit_reason_to_u8(exit_reason: &ExitReason) -> u8 {
 			ExitError::MaxNonce => 0x38,
 			ExitError::OutOfGas => 0x39,
 			ExitError::OutOfOffset => 0x3c,
+			// Error coming from Bn128 implementation.
+			// Bn128 precompiles are not supported in devm
+			ExitError::Other(msg) if msg == "Invalid point x coordinate" => 0x20,
 			ExitError::Other(_) => 0x3d,
 			ExitError::InvalidCode(_) => 0x3f,
 			_ => 0x30,
