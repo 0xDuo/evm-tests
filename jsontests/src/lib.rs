@@ -445,9 +445,7 @@ impl ExitBehavior {
 			ExitReason::Error(ExitError::OutOfOffset)
 			| ExitReason::Error(ExitError::InvalidCode(Opcode::INVALID)) => (true, true),
 			// Devm exits early for the following errors
-			ExitReason::Error(ExitError::CreateCollision)
-			| ExitReason::Error(ExitError::MaxNonce)
-			| ExitReason::Error(ExitError::StackUnderflow)
+			ExitReason::Error(ExitError::StackUnderflow)
 			| ExitReason::Error(ExitError::StackOverflow)
 			| ExitReason::Error(ExitError::InvalidCode(_))
 			| ExitReason::Error(ExitError::OutOfGas) => (true, false),
@@ -467,9 +465,7 @@ impl ExitBehavior {
 		}
 		if self.save_current_step {
 			listener.save_current_step();
-		} else if listener.current_step_consumed
-			&& listener.events.len() > 0
-		{
+		} else if listener.current_step_consumed && listener.events.len() > 0 {
 			listener.events.remove(listener.events.len() - 1);
 		}
 	}

@@ -2,7 +2,6 @@ use crate::{exit_reason_to_u8, utils::*, Event, EventListener, ExitBehavior};
 use evm::backend::{ApplyBackend, MemoryAccount, MemoryBackend, MemoryVicinity};
 use evm::executor::stack::{MemoryStackState, StackExecutor, StackSubstateMetadata};
 use evm::Config;
-use evm_runtime::{ExitError, ExitReason};
 use primitive_types::{H160, H256, U256};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -186,5 +185,9 @@ pub fn test(name: &str, test: Test, devm_path: &Path) {
 				test.0.transaction.gas.0.as_u64() - gas_left.0.as_u64()
 			);
 		}
+	}
+
+	if test.0.output.is_some() {
+		assert_valid_state(test.0.post_state.as_ref().unwrap(), &backend.state());
 	}
 }
