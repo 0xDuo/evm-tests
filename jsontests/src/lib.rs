@@ -434,6 +434,7 @@ pub fn get_repository_root() -> anyhow::Result<PathBuf> {
 struct ExitBehavior {
 	set_remaining_gas_to_zero: bool,
 	save_current_step: bool,
+	erase_last_step: bool,
 }
 
 impl ExitBehavior {
@@ -441,31 +442,35 @@ impl ExitBehavior {
 		// Certain errors require manual intervention in the tracing to match devm.
 		// This manual intervention is needed only because Sputnik events may or may not
 		// be emitted depending on where exactly the error happens.
-		let (set_remaining_gas_to_zero, save_current_step) = match reason {
-			ExitReason::Error(ExitError::OutOfOffset)
-			| ExitReason::Error(ExitError::InvalidCode(Opcode::INVALID)) => (true, true),
+		let (set_remaining_gas_to_zero, save_current_step, erase_last_step) = match reason {
+			ExitReason::Error(ExitError::InvalidCode(Opcode::INVALID)) => (true, true, false),
 			// Devm exits early for the following errors
 			ExitReason::Error(ExitError::StackUnderflow)
-			| ExitReason::Error(ExitError::StackOverflow)
-			| ExitReason::Error(ExitError::InvalidCode(_))
-			| ExitReason::Error(ExitError::OutOfGas) => (true, false),
+			| ExitReason::Error(ExitError::StackOverflow) => (true, false, true),
 			// Any other error should include the trace with zero gas
-			ExitReason::Error(_) => (true, true),
-			_ => (false, true),
+			ExitReason::Error(_) => (true, false, false),
+			_ => (false, true, false),
 		};
 		Self {
 			set_remaining_gas_to_zero,
 			save_current_step,
+			erase_last_step,
 		}
 	}
 
 	fn execute(&self, listener: &mut EventListener) {
+		// Drain remaining gas for any error
 		if self.set_remaining_gas_to_zero {
 			listener.intermediate_exit.gas = 0;
 		}
+
+		// Save the step for non-error exits and invalid opcode (0xfe)
 		if self.save_current_step {
 			listener.save_current_step();
-		} else if listener.current_step_consumed && listener.events.len() > 0 {
+		}
+
+		// Remove the step that is already added from StepResult
+		if self.erase_last_step && listener.current_step_consumed && listener.events.len() > 0 {
 			listener.events.remove(listener.events.len() - 1);
 		}
 	}
