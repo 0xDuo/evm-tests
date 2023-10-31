@@ -252,7 +252,31 @@ pub fn generate_move_test_file(test: &Test, transaction: &Transaction, devm_path
 		}
 	}
 	content.push_str(&format!("    devm::state::apply(changes);\n\n"));
-	content.push_str(&format!("    let test_params = devm::evm::new_test_params(1, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x});\n", test.0.env.author.0, test.0.env.difficulty.0, test.0.env.gas_limit.0, test.0.env.number.0, test.0.env.timestamp.0, test.0.env.block_base_fee_per_gas.0));
+	let mut access_address_list = String::from("");
+	let mut access_storage_list = String::from("");
+	transaction
+		.access_list
+		.iter()
+		.for_each(|(address, storage_keys)| {
+			access_address_list.push_str(&format!("@{:?}, ", address.0));
+			storage_keys.iter().for_each(|index| {
+				access_storage_list.push_str(&format!(
+					"devm::gas::new_storage(@{:?}, {:?}), ",
+					address.0, index.0,
+				));
+			});
+		});
+	content.push_str(&format!(
+		"    let test_params = devm::evm::new_test_params(1, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, vector[{}], vector[{}]);\n",
+		test.0.env.author.0,
+		test.0.env.random.unwrap_or(test.0.env.difficulty).0,
+		test.0.env.gas_limit.0,
+		test.0.env.number.0,
+		test.0.env.timestamp.0,
+		test.0.env.block_base_fee_per_gas.0,
+		access_address_list,
+		access_storage_list
+	));
 	let to = match transaction.to {
 		MaybeEmpty::Some(to) => hex::encode(to.0),
 		MaybeEmpty::None => String::from(""),

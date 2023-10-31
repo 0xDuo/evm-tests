@@ -110,8 +110,25 @@ pub fn generate_move_test_file(test: &Test, devm_path: &Path) {
 	content.push_str(&format!("    devm::state::apply(changes);\n\n"));
 	let context = test.unwrap_to_context();
 	// Below we keep the transfer value at 0, because we're only testing the runtime and not the transaction call
-	content.push_str(&format!("    let params = devm::evm::new_run_params(@{:?}, @{:?}, devm::state::get_code(changes, @{:?}), {}, x\"{}\", {:#x}, {:#x}, 0);\n", context.caller, context.address, context.address, context.apparent_value, hex::encode(test.unwrap_to_data().to_vec()), test.0.transaction.gas.0.as_u64(), test.0.transaction.gas_price.0.as_u64()));
-	content.push_str(&format!("    let test_params = devm::evm::new_test_params(1, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x});\n", test.0.env.author.0, test.0.env.difficulty.0, test.0.env.gas_limit.0, test.0.env.number.0, test.0.env.timestamp.0, test.0.env.block_base_fee_per_gas.0));
+	content.push_str(&format!(
+		"    let params = devm::evm::new_run_params(@{:?}, @{:?}, devm::state::get_code(changes, @{:?}), {}, x\"{}\", {:#x}, {:#x}, 0);\n",
+		context.caller,
+		context.address,
+		context.address,
+		context.apparent_value,
+		hex::encode(test.unwrap_to_data().to_vec()),
+		test.0.transaction.gas.0.as_u64(),
+		test.0.transaction.gas_price.0.as_u64()
+	));
+	content.push_str(&format!(
+		"    let test_params = devm::evm::new_test_params(1, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}, vector[], vector[]);\n",
+		test.0.env.author.0,
+		test.0.env.difficulty.0,
+		test.0.env.gas_limit.0,
+		test.0.env.number.0,
+		test.0.env.timestamp.0,
+		test.0.env.block_base_fee_per_gas.0
+	));
 	content.push_str("    devm::evm::disable_value_transfer(&mut params);\n"); // We're only testing VM runtime, not value transfers
 	content.push_str("    let (output, exit_reason, logs, gas, _) = devm::evm::destructure_run_result(devm::evm::run(params, &mut devm::state::new_changes(), test_params));\n");
 	content.push_str("    devm::evm::print_output(output, exit_reason, logs, gas);\n");
