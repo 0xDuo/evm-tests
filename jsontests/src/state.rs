@@ -347,7 +347,7 @@ fn test_run(name: &str, test: Test, devm_path: &Path) -> TestStatus {
 			print!("Running {full_name} ... ");
 			flush();
 
-			let transaction = test.0.transaction.select(&state.indexes);
+			let transaction = test.0.transaction.select(&state.indexes, vicinity.block_base_fee_per_gas);
 			let mut backend = MemoryBackend::new(&vicinity, original_state.clone());
 
 			generate_move_test_file(&test, &transaction, devm_path);
