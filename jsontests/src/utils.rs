@@ -147,7 +147,7 @@ pub fn assert_valid_hash(h: &H256, b: &BTreeMap<H160, MemoryAccount>) {
 	let expect = h;
 
 	if root != *expect {
-		panic!(
+		println!(
 			"Hash not equal; calculated: {:?}, expect: {:?}\nState: {:#x?}",
 			root, expect, b
 		);

@@ -91,7 +91,6 @@ fn st_code_size_limit() {
 	run("res/ethtests/GeneralStateTests/stCodeSizeLimit")
 }
 #[test]
-#[ignore]
 fn st_create2() {
 	run("res/ethtests/GeneralStateTests/stCreate2")
 }
@@ -122,6 +121,22 @@ fn st_eip158_specific() {
 #[test]
 fn st_eip2930() {
 	run("res/ethtests/GeneralStateTests/stEIP2930")
+}
+#[test]
+fn st_eip3607() {
+	run("res/ethtests/GeneralStateTests/stEIP3607")
+}
+#[test]
+fn st_eip3651() {
+	run("res/ethtests/GeneralStateTests/Shanghai/stEIP3651-warmcoinbase");
+}
+#[test]
+fn st_eip3855() {
+	run("res/ethtests/GeneralStateTests/Shanghai/stEIP3855-push0");
+}
+#[test]
+fn st_eip3860() {
+	run("res/ethtests/GeneralStateTests/Shanghai/stEIP3860-limitmeterinitcode");
 }
 #[test]
 fn st_example() {
@@ -194,7 +209,6 @@ fn st_return_data() {
 	run("res/ethtests/GeneralStateTests/stReturnDataTest")
 }
 #[test]
-#[ignore]
 fn st_revert() {
 	run("res/ethtests/GeneralStateTests/stRevertTest")
 }
@@ -215,7 +229,6 @@ fn st_solidity() {
 	run("res/ethtests/GeneralStateTests/stSolidityTest")
 }
 #[test]
-#[ignore]
 fn st_special() {
 	run("res/ethtests/GeneralStateTests/stSpecialTest")
 }
@@ -223,7 +236,6 @@ fn st_special() {
 // handlings. Those situations will never happen on a production chain (an empty
 // account with storage values), so we can safely ignore them.
 #[test]
-#[ignore]
 fn st_sstore() {
 	run("res/ethtests/GeneralStateTests/stSStoreTest")
 }
