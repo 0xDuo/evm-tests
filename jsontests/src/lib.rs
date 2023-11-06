@@ -225,7 +225,7 @@ impl evm::gasometer::tracing::EventListener for EventListener {
 				snapshot,
 			} => {
 				if self.current_memory_gas.is_empty() {
-					self.current_memory_gas.push(0);
+					self.current_memory_gas.push(memory_gas);
 				}
 				// Unwrap is safe because the `if` statement above guarantees at least one item in the Vec.
 				let current_memory_gas = self.current_memory_gas.last_mut().unwrap();
