@@ -362,9 +362,9 @@ fn test_run(name: &str, test: Test, devm_path: &Path) -> TestStatus {
 			) {
 				let gas_limit: u64 = transaction.gas_limit.into();
 				let data: Vec<u8> = transaction.data.into();
-				let metadata =
-					StackSubstateMetadata::new(transaction.gas_limit.into(), &gasometer_config);
-				let executor_state = MemoryStackState::new(metadata, &mut backend);
+				let metadata = StackSubstateMetadata::new(gas_limit, &gasometer_config);
+				let executor_state =
+					MemoryStackState::new(metadata.spit_child(gas_limit, false), &mut backend);
 				let precompile = JsonPrecompile::precompile(spec).unwrap();
 				let mut executor = StackExecutor::new_with_precompiles(
 					executor_state,
